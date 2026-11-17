@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Press Sheet</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="home">
+  <nav id="modes" aria-label="Modes"></nav>
+  <header id="hello">
+    <div>
+      <h1 id="greeting"></h1>
+      <div id="dateline"></div>
+    </div>
+    <div class="inks" aria-hidden="true"><span class="c"></span><span class="m"></span><span class="y"></span><span class="k"></span></div>
+  </header>
+  <div id="grid"></div>
+  <div class="spacer"></div>
+  <button id="handle" type="button">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg>
+    All apps
+  </button>
+</main>
+<div id="dock"></div>
+
+<section id="drawer" hidden aria-label="All apps">
+  <div class="drawer-top">
+    <input id="search" type="search" placeholder="Search apps" aria-label="Search apps" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button id="gear" type="button" aria-label="Settings">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+    </button>
+  </div>
+  <div id="pickhint" hidden></div>
+  <div id="applist"></div>
+</section>
+
+<div id="scrim" hidden></div>
+<section id="sheet" hidden role="dialog" aria-modal="true"></section>
+<div id="toast" hidden role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>

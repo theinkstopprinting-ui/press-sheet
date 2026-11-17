@@ -1,0 +1,113 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Signing key
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          S_STORE: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          S_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          S_KEY: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            { echo "SIGNING_STORE_PASSWORD=$S_STORE"; echo "SIGNING_KEY_PASSWORD=$S_KEY"; echo "SIGNING_KEY_ALIAS=$S_ALIAS"; } >> "$GITHUB_ENV"
+          elif [ -f signing/release.jks ]; then
+            # The key kept in this private repo (see signing/README.md)
+            echo "SIGNING_KEYSTORE_PATH=$GITHUB_WORKSPACE/signing/release.jks" >> "$GITHUB_ENV"
+            echo "SIGNING_STORE_PASSWORD=$(grep '^storePassword=' signing/key.properties | cut -d= -f2-)" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_PASSWORD=$(grep '^keyPassword=' signing/key.properties | cut -d= -f2-)" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_ALIAS=$(grep '^keyAlias=' signing/key.properties | cut -d= -f2-)" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No signing key - the APK is signed with a throwaway debug key"
+          fi
+
+      - name: Build
+        run: gradle :app:assembleRelease --stacktrace --no-daemon
+
+      - name: Name the APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk "out/PressSheet-1.0.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PressSheet-1.0.${{ github.run_number }}
+          path: out/*.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Press Sheet 1.0.${{ github.run_number }}
+          files: out/*.apk
+          make_latest: true
+
+  # Installs the APK on an Android emulator, opens it and checks it starts and stays running
+  smoke-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: PressSheet-1.0.${{ github.run_number }}
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: |
+            adb install -r apk/*.apk
+            adb logcat -c
+            adb shell am start -W -n com.theinkstop.presssheet/.MainActivity
+            sleep 20
+            mkdir -p shots
+            adb exec-out screencap -p > shots/1-shop.png
+            adb shell input swipe 540 1900 540 700 200
+            sleep 4
+            adb exec-out screencap -p > shots/2-all-apps.png
+            adb shell input keyevent KEYCODE_BACK
+            sleep 2
+            adb exec-out screencap -p > shots/3-back-home.png
+            echo "----- app log -----"; adb logcat -d -v brief | grep -E "AndroidRuntime|FATAL|chromium|presssheet|PressSheet" | tail -80 || true
+            adb shell pidof com.theinkstop.presssheet
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots/*.png
