@@ -103,11 +103,24 @@ jobs:
             adb shell input keyevent KEYCODE_BACK
             sleep 2
             adb exec-out screencap -p > shots/3-back-home.png
-            echo "----- app log -----"; adb logcat -d -v brief | grep -E "AndroidRuntime|FATAL|chromium|presssheet|PressSheet" | tail -80 || true
+            adb logcat -d -v brief | grep -E "AndroidRuntime|FATAL|chromium|presssheet|PressSheet" | tail -120 > shots/app-log.txt || true
+            echo "----- app log -----"; cat shots/app-log.txt
             adb shell pidof com.theinkstop.presssheet
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: screenshots
-          path: shots/*.png
+          path: shots/*
+
+      # Keeps the latest test screenshots where they can be looked at: a separate "Test screenshots"
+      # entry under Releases, replaced on every build and never marked as the latest version.
+      - name: Publish test screenshots
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-screenshots
+          name: Test screenshots (latest build)
+          prerelease: true
+          make_latest: false
+          files: shots/*
