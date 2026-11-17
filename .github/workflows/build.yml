@@ -88,6 +88,7 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
+          profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: |
@@ -97,7 +98,7 @@ jobs:
             sleep 20
             mkdir -p shots
             adb exec-out screencap -p > shots/1-shop.png
-            adb shell input swipe 540 1900 540 700 200
+            adb shell input swipe 540 1700 540 700 200
             sleep 4
             adb exec-out screencap -p > shots/2-all-apps.png
             adb shell input keyevent KEYCODE_BACK
