@@ -150,6 +150,13 @@ public class MainActivity extends Activity {
         tellPage("resume", "null");
     }
 
+    /** The phone switched dark mode on or off (the activity handles uiMode changes itself). */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        tellPage("theme", "null");
+    }
+
     /** Pressing Home while already on the home screen goes back to the tiles. */
     @Override
     protected void onNewIntent(Intent intent) {
@@ -449,6 +456,13 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+        }
+
+        /** True when the phone is set to dark mode. */
+        @JavascriptInterface
+        public boolean isNightMode() {
+            int night = getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         }
 
         @JavascriptInterface

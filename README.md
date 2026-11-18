@@ -11,7 +11,8 @@ A home screen (launcher) for Android with a big clock and five modes you switch 
 There are three looks, picked in Settings. **Home Base** (the default from 1.0.6) shows your own
 wallpaper, a camera button with your recent photos, a live InkFlow card, a Main page with folders,
 pages for Shop / Reselling / Home / Games / Financial, and an all-apps list with search and an A to Z
-strip. The other two are **Press Sheet** (big colour tiles) and **Job Ticket**
+strip. It uses the same cyan / magenta / yellow / black colors as Press Sheet, in Light, Dark or
+Same as phone, on a plain background or over your own wallpaper (Settings). The other two are **Press Sheet** (big colour tiles) and **Job Ticket**
 (a blue work-order screen with tabs, list rows and a search bar at the bottom that finds apps and
 InkFlow tasks). Both use the same modes, apps and InkFlow sign-in.
 

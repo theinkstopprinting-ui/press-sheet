@@ -529,6 +529,12 @@
 
   function isTicket() { return state.style === 'ticket'; }
   function isBase() { return state.style === 'base'; }
+  function isDark() {
+    var t = state.theme || 'phone';
+    if (t === 'dark') return true;
+    if (t === 'light') return false;
+    try { return !!(N.isNightMode && N.isNightMode()); } catch (e) { return false; }
+  }
 
   function render() {
     var mode = state.modes[state.mode];
@@ -537,12 +543,19 @@
     document.body.classList.toggle('ticket', ticket);
     document.body.classList.toggle('base', base);
     document.documentElement.classList.toggle('base', base);
+    var dark = base && isDark(), wall = base && !!state.wall;
+    document.body.classList.toggle('dark', dark);
+    document.documentElement.classList.toggle('dark', dark);
+    document.body.classList.toggle('wall', wall);
+    document.documentElement.classList.toggle('wall', wall);
     $('home').hidden = ticket || base;
     $('dock').hidden = ticket || base;
     $('ticket').hidden = !ticket;
     $('base').hidden = !base;
     if (!base) $('b-all').hidden = true;
-    try { if (N.setBars) N.setBars(base ? '#00000000' : ticket ? '#2440A8' : '#EEF1F6', !ticket && !base); } catch (e) { /* older app */ }
+    var bar = base ? (wall ? '#00000000' : dark ? '#0E1015' : '#EEF1F6') : ticket ? '#2440A8' : '#EEF1F6';
+    var darkIcons = base ? (!dark && !wall) : !ticket;
+    try { if (N.setBars) N.setBars(bar, darkIcons); } catch (e) { /* older app */ }
     lastClock = '';
     tick();
     if (base) { renderBase(); return; }
@@ -816,7 +829,7 @@
 
   function folderIcon(id) {
     var list = state.base.pages[id] || [];
-    var box = h('span', { class: 'b-fold', 'aria-hidden': 'true' });
+    var box = h('span', { class: 'b-fold f-' + id, 'aria-hidden': 'true' });
     list.slice(0, 4).forEach(function (it) { box.appendChild(iconEl(it)); });
     for (var i = list.length; i < 4; i++) box.appendChild(h('span', null));
     return box;
@@ -897,9 +910,6 @@
       g.style.gap = '14px 6px';
       list.forEach(function (it) {
         var b = baseItem(list, it, id, closeSheet);
-        b.style.color = '#0F1115';
-        var m = b.querySelector('.mono');
-        if (m) { m.style.background = '#E1E5EC'; m.style.color = '#0F1115'; }
         g.appendChild(b);
       });
       if (!list.length) s.appendChild(h('p', { text: 'Nothing here yet.' }));
@@ -1409,6 +1419,23 @@
       s.appendChild(looks);
       s.appendChild(h('p', { text: 'Press Sheet and Job Ticket share the same modes. Home Base keeps its own pages and folders. All three share the clock and your InkFlow sign-in.' }));
 
+      s.appendChild(h('h2', { text: 'Home Base colors' }));
+      var themes = h('div', { class: 'row' });
+      [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'phone', label: 'Same as phone' }].forEach(function (th) {
+        var b = opt(th.label, function () { state.theme = th.id; save(); render(); openSettings(); });
+        b.setAttribute('aria-pressed', (state.theme || 'phone') === th.id ? 'true' : 'false');
+        themes.appendChild(b);
+      });
+      s.appendChild(themes);
+      var walls = h('div', { class: 'row' });
+      [{ on: false, label: 'Plain background' }, { on: true, label: 'My wallpaper' }].forEach(function (wv) {
+        var b = opt(wv.label, function () { state.wall = wv.on; save(); render(); openSettings(); });
+        b.setAttribute('aria-pressed', !!state.wall === wv.on ? 'true' : 'false');
+        walls.appendChild(b);
+      });
+      s.appendChild(walls);
+      s.appendChild(h('p', { text: '\u201cSame as phone\u201d follows your phone\u2019s dark mode setting. \u201cMy wallpaper\u201d shows your phone\u2019s wallpaper behind the apps.' }));
+
       s.appendChild(h('h2', { text: 'Home screen' }));
       var isHome = false;
       try { isHome = !!N.isDefaultHome(); } catch (e) { isHome = false; }
@@ -1497,6 +1524,7 @@
 
   window.onNative = function (name, data) {
     if (name === 'back') { closeTop(); return; }
+    if (name === 'theme') { if (isBase()) render(); return; }
     if (name === 'photos') { loadPhotos(); if (isBase()) renderStrip(); return; }
     if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; if (isBase()) { closeAll(); if (state.base.page !== 'main') setBasePage('main'); } if (isTicket()) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); $('t-rows').scrollTop = 0; } return; }
     if (name === 'apps') { loadApps(); matchApps(); render(); if (drawerIsOpen()) renderAppList(); return; }
@@ -1568,6 +1596,7 @@
       openPhoto: function (id) { window.__photo = id; return true; },
       openCamera: function () { window.__camera = true; return true; },
       openOwnSettings: function () {},
+      isNightMode: function () { return /night/.test(location.search); },
       inkflowRefresh: function () {
         setTimeout(function () {
           window.onNative('live', { ok: true, data: {
