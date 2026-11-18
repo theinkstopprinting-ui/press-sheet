@@ -5,7 +5,8 @@
   'use strict';
 
   var N = window.Android || mockBridge();
-  var MODES = [{ id: 'shop', label: 'Shop' }, { id: 'home', label: 'Home' }, { id: 'show', label: 'Show time' }];
+  var MODES = [{ id: 'shop', label: 'Shop' }, { id: 'home', label: 'Home' }, { id: 'show', label: 'Reselling' },
+    { id: 'games', label: 'Games' }, { id: 'money', label: 'Financial' }];
   var COLORS = ['white', 'cyan', 'pink', 'yellow', 'black'];
   var SIZES = [{ id: 'small', label: 'Small' }, { id: 'wide', label: 'Wide' }, { id: 'big', label: 'Big' }];
   var PAGES = [
@@ -16,7 +17,7 @@
     { label: 'Inventory', path: '/inventory' }, { label: 'Mockup studio', path: '/studio' },
     { label: 'Scan a work order', path: '/scan' }
   ];
-  var STATE_VERSION = 1;
+  var STATE_VERSION = 2;
 
   var apps = [];
   var byPkg = {};
@@ -50,7 +51,8 @@
   }
 
   function uid() { return 't' + Math.random().toString(36).slice(2, 9); }
-  function appT(label, want) { return { type: 'app', label: label, want: want || [label.toLowerCase()], pkg: '', act: '' }; }
+  /** adopt: once found on the phone, show the app's own name (for apps whose exact name was a guess). */
+  function appT(label, want, adopt) { return { type: 'app', label: label, want: want || [label.toLowerCase()], pkg: '', act: '', adopt: !!adopt }; }
   function pageT(label, path) { return { type: 'inkflow', label: label, path: path }; }
   function linkT(label, url) { return { type: 'url', label: label, url: url }; }
   function tile(size, color, t, extra) {
@@ -109,8 +111,11 @@
             tile('small', 'white', appT('Depop')),
             tile('small', 'white', appT('Etsy', ['etsy', 'etsy seller']))
           ]
-        }
+        },
+        games: gamesMode(),
+        money: moneyMode()
       },
+      clock: { t: appT('Clock', ['clock']) },
       dock: [
         { t: appT('Phone') }, { t: appT('Messages') }, { t: appT('InkStop Mail', ['inkstop mail']) },
         { t: appT('Chrome') }, { t: appT('Starbucks') }
@@ -118,12 +123,56 @@
     };
   }
 
+  function gamesMode() {
+    return {
+      hero: {
+        color: 'cyan', sub: 'Pick up where you left off', t: appT('Disney Solitaire', ['disney solitaire', 'solitaire'], true),
+        btns: [{ name: 'Video Poker', t: appT('High Roller Video Poker', ['high roller video poker', 'high roller', 'video poker'], true) },
+          { name: 'Tasty Travels', t: appT('Tasty Travels', ['tasty travels', 'tasty'], true) }]
+      },
+      tiles: [
+        tile('big', 'black', appT('Coin Master', ['coin master'])),
+        tile('wide', 'yellow', appT('DeckTok', ['decktok', 'deck tok'], true)),
+        tile('wide', 'pink', appT('Nintendo', ['nintendo switch', 'nintendo'], true)),
+        tile('small', 'white', appT('Play Store', ['play store', 'google play store']))
+      ]
+    };
+  }
+
+  function moneyMode() {
+    return {
+      hero: {
+        color: 'yellow', sub: 'Payments, balances and benefits', t: appT('PayPal', ['paypal']),
+        btns: [{ t: appT('Money', ['moneylion', 'money lion', 'mone'], true) }, { t: appT('PayPal POS', ['paypal pos', 'paypal zettle']) }]
+      },
+      tiles: [
+        tile('big', 'black', appT('Progressive', ['progressive'], true)),
+        tile('wide', 'cyan', appT('Aetna', ['aetna'], true)),
+        tile('wide', 'pink', appT('CVS OTC', ['cvs flex', 'otc', 'cvs'], true)),
+        tile('small', 'white', appT('AtoB', ['atob'], true)),
+        tile('small', 'white', appT('Murphy USA', ['murphy usa', 'murphy'], true)),
+        tile('small', 'white', appT('Rewards', ['microsoft rewards', 'rewards'], true)),
+        tile('small', 'white', appT('Calculator', ['calculator']))
+      ]
+    };
+  }
+
   function loadState() {
     var s = null;
+    var upgraded = false;
     try { s = JSON.parse(N.getState() || 'null'); } catch (e) { s = null; }
-    if (!s || s.v !== STATE_VERSION || !s.modes || !s.modes.shop || !s.modes.home || !s.modes.show || !Array.isArray(s.dock)) {
-      s = defaults();
+    // Version 1 had three modes: keep everything set up there and add Games, Financial and the clock.
+    if (s && s.v === 1 && s.modes && s.modes.shop && s.modes.home && s.modes.show && Array.isArray(s.dock)) {
+      s.modes.games = gamesMode();
+      s.modes.money = moneyMode();
+      s.clock = { t: appT('Clock', ['clock']) };
+      s.v = 2;
+      upgraded = true;
     }
+    var complete = s && s.v === STATE_VERSION && s.modes && Array.isArray(s.dock) && s.clock &&
+      MODES.every(function (m) { return !!s.modes[m.id]; });
+    if (!complete) s = defaults();
+    if (upgraded) { state = s; save(); }
     if (!s.modes[s.mode]) s.mode = 'shop';
     return s;
   }
@@ -140,6 +189,7 @@
       mode.tiles.forEach(function (t) { fn(t.t); });
     });
     state.dock.forEach(function (d) { if (d.t) fn(d.t); });
+    if (state.clock && state.clock.t) fn(state.clock.t);
   }
 
   function findApp(want) {
@@ -159,7 +209,7 @@
     eachTarget(function (t) {
       if (!t || t.type !== 'app' || t.pkg) return;
       var a = findApp(t.want && t.want.length ? t.want : [String(t.label || '').toLowerCase()]);
-      if (a) { t.pkg = a.pkg; t.act = a.act; changed = true; }
+      if (a) { t.pkg = a.pkg; t.act = a.act; if (t.adopt) t.label = a.label; changed = true; }
     });
     if (changed) save();
   }
@@ -248,11 +298,23 @@
   // ------------------------------------------------------------------ home screen
 
   function greeting() {
-    if (state.mode === 'show') return 'Show time.';
     var hr = new Date().getHours();
     var word = hr < 12 ? 'Morning' : hr < 17 ? 'Afternoon' : 'Evening';
     var name = (state.name || account.name || '').trim().split(/\s+/)[0] || '';
-    return name ? word + ', ' + name + '.' : 'Good ' + word.toLowerCase() + '.';
+    return name ? 'Good ' + word.toLowerCase() + ', ' + name : 'Good ' + word.toLowerCase();
+  }
+
+  var lastClock = '';
+  function tick() {
+    var now = new Date();
+    var text = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (text === lastClock) return;
+    lastClock = text;
+    var m = text.match(/^(.*?)\s*([AaPp]\.?\s?[Mm]\.?)$/);
+    $('time').textContent = m ? m[1] : text;
+    $('ampm').textContent = m ? m[2].replace(/[.\s]/g, '').toUpperCase() : '';
+    $('greeting').textContent = greeting();
+    $('dateline').textContent = now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
   function renderModes() {
@@ -263,6 +325,12 @@
       b.addEventListener('click', function () { setMode(m.id); });
       nav.appendChild(b);
     });
+    var on = nav.querySelector('[aria-pressed="true"]');
+    if (on) {
+      var left = on.offsetLeft - 20, right = on.offsetLeft + on.offsetWidth + 20 - nav.clientWidth;
+      if (nav.scrollLeft > left) nav.scrollLeft = left;
+      else if (nav.scrollLeft < right) nav.scrollLeft = right;
+    }
   }
 
   function setMode(id) {
@@ -344,7 +412,7 @@
 
   function renderTile(t, mode) {
     var empty = isEmpty(t.t);
-    var el = h('button', { type: 'button', class: 'tile ' + t.size + ' ' + t.color + (empty ? ' empty' : '') });
+    var el = h('button', { type: 'button', class: 'tile ' + t.size + ' ' + t.color + (empty ? ' empty' : '') + (t.live ? ' live' : '') });
     var name = labelOf(t);
     if (t.size === 'small') {
       el.appendChild(iconEl(t));
@@ -376,8 +444,8 @@
   function render() {
     var mode = state.modes[state.mode];
     renderModes();
-    $('greeting').textContent = greeting();
-    $('dateline').textContent = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    lastClock = '';
+    tick();
     var grid = $('grid');
     grid.textContent = '';
     grid.appendChild(renderHero(mode));
@@ -580,7 +648,9 @@
         void i;
       }
 
-      if (ctx.kind === 'dock') {
+      if (ctx.kind === 'clock') {
+        // the clock only needs its app
+      } else if (ctx.kind === 'dock') {
         s.appendChild(opt('Empty this spot', function () { holder.t = null; delete holder.name; save(); closeSheet(); render(); }, 'danger'));
       } else {
         s.appendChild(opt('Add a tile to this mode', function () {
@@ -663,7 +733,10 @@
   function wireGestures() {
     var sx = 0, sy = 0, at = 0;
     var home = $('home');
-    function start(e) { var t = e.touches[0]; sx = t.clientX; sy = t.clientY; at = Date.now(); }
+    function start(e) {
+      var t = e.touches[0]; sx = t.clientX; sy = t.clientY;
+      at = e.target.closest && e.target.closest('#modes') ? 0 : Date.now();
+    }
     home.addEventListener('touchstart', start, { passive: true });
     $('dock').addEventListener('touchstart', start, { passive: true });
     function end(e) {
@@ -688,6 +761,7 @@
     }, { passive: true });
 
     $('handle').addEventListener('click', openDrawer);
+    press($('clock'), function () { openTarget(state.clock); }, function () { editHolder({ kind: 'clock', holder: state.clock }); });
     $('gear').addEventListener('click', function () { openSettings(); });
     $('search').addEventListener('input', renderAppList);
     $('scrim').addEventListener('click', closeSheet);
@@ -699,7 +773,7 @@
     if (name === 'back') { closeTop(); return; }
     if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; return; }
     if (name === 'apps') { loadApps(); matchApps(); render(); if (drawerIsOpen()) renderAppList(); return; }
-    if (name === 'resume') { loadAccount(); render(); maybeRefreshLive(false); return; }
+    if (name === 'resume') { loadAccount(); lastClock = ''; render(); maybeRefreshLive(false); return; }
     if (name === 'signin') { if (signInDone) { var fn = signInDone; signInDone = null; fn(data); } return; }
     if (name === 'live') {
       live.loading = false;
@@ -724,16 +798,17 @@
   maybeRefreshLive(true);
   setInterval(function () {
     if (document.visibilityState !== 'visible') return;
-    $('greeting').textContent = greeting();
     maybeRefreshLive(false);
   }, 30000);
+  setInterval(function () { if (document.visibilityState === 'visible') tick(); }, 1000);
 
   // ------------------------------------------------------------------ stand-in for testing in a browser
 
   function mockBridge() {
     var names = ['Calculator', 'Calendar', 'Camera', 'Canva', 'Chrome', 'Claude', 'Clock', 'Depop', 'eBay', 'Family Hub', 'FretQuest', 'Immich',
       'InkStop Mail', 'Jellyfin', 'JuniCare', 'Maps', 'Mercari', 'Messages', 'Nextcloud', 'PayPal POS', 'Phone', 'Photos', 'Poshmark',
-      'Starbucks', 'The Roku App', 'Whatnot', 'YouTube', 'YT Music'];
+      'Starbucks', 'The Roku App', 'Whatnot', 'YouTube', 'YT Music', 'Disney Solitaire', 'High Roller Video Poker', 'Tasty Travels: Merge Game',
+      'Coin Master', 'DeckTok', 'Nintendo Switch App', 'Play Store', 'PayPal', 'MoneyLion', 'Progressive', 'Aetna Health', 'CVS Flex Benefits OTC', 'AtoB', 'Murphy USA', 'Microsoft Rewards'];
     var hues = [200, 330, 48, 150, 265, 20];
     var signedIn = /signedin/.test(location.search);
     return {

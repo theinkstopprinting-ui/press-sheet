@@ -1,12 +1,14 @@
 # Press Sheet
 
-A home screen (launcher) for Android with three modes you switch by hand:
+A home screen (launcher) for Android with a big clock and five modes you switch by hand:
 
 - **Shop**: InkFlow with today's orders, live printers, InkStop Mail and shop tools
 - **Home**: Family Hub, Jellyfin, Immich, FretQuest and the rest of the house
-- **Show time**: Lister, Whatnot and the marketplaces
+- **Reselling**: Lister, Whatnot and the marketplaces
+- **Games**: Disney Solitaire, Coin Master, Video Poker and the rest
+- **Financial**: PayPal, insurance, health benefits and fuel
 
-Press and hold any tile, button or dock spot to change what it opens, its colour or its size.
+Tap the clock to open your Clock app. Press and hold any tile, button, dock spot or the clock to change what it opens, its colour or its size.
 Swipe up (or tap **All apps**) for every app with search; the gear there opens Settings.
 
 ## How it's built
