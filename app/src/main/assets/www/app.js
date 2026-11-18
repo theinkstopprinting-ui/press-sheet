@@ -18,6 +18,11 @@
     { label: 'Scan a work order', path: '/scan' }
   ];
   var STATE_VERSION = 2;
+  var TICKET = {
+    shop: { no: '01', title: 'On the floor today' }, home: { no: '02', title: 'At the house' },
+    show: { no: '03', title: 'List it, ship it' }, games: { no: '04', title: 'Game time' },
+    money: { no: '05', title: 'Money matters' }
+  };
 
   var apps = [];
   var byPkg = {};
@@ -315,6 +320,9 @@
     $('ampm').textContent = m ? m[2].replace(/[.\s]/g, '').toUpperCase() : '';
     $('greeting').textContent = greeting();
     $('dateline').textContent = now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    $('t-time').textContent = $('time').textContent;
+    $('t-ampm').textContent = $('ampm').textContent;
+    $('t-hline').textContent = $('dateline').textContent + ' \u00b7 ' + greeting();
   }
 
   function renderModes() {
@@ -441,16 +449,193 @@
     });
   }
 
+  function isTicket() { return state.style === 'ticket'; }
+
   function render() {
     var mode = state.modes[state.mode];
-    renderModes();
+    var ticket = isTicket();
+    document.body.classList.toggle('ticket', ticket);
+    $('home').hidden = ticket;
+    $('dock').hidden = ticket;
+    $('ticket').hidden = !ticket;
+    try { if (N.setBars) N.setBars(ticket ? '#2440A8' : '#EEF1F6', !ticket); } catch (e) { /* older app */ }
     lastClock = '';
     tick();
+    if (ticket) { renderTicket(mode); return; }
+    renderModes();
     var grid = $('grid');
     grid.textContent = '';
     grid.appendChild(renderHero(mode));
     mode.tiles.forEach(function (t) { grid.appendChild(renderTile(t, mode)); });
     renderDock();
+  }
+
+  // ------------------------------------------------------------------ Job Ticket look
+
+  function printersText() {
+    if (!account.signedIn || live.signedOut) return 'Sign in to InkFlow to see them live';
+    if (!live.data) return live.error || 'Checking…';
+    var list = live.data.printers || [];
+    if (!list.length) return 'No printers reporting right now';
+    return list.map(function (p) {
+      var st = !p.online ? 'offline' : p.busy ? (typeof p.pct === 'number' ? Math.round(p.pct) + '%' : 'printing') : p.paused ? 'paused' : p.lastOk === false ? 'failed' : 'idle';
+      return p.name.replace(/^EZ-JET PRO /i, 'EZ-JET ') + ' ' + st;
+    }).join(' · ');
+  }
+
+  function ordersText() {
+    if (!account.signedIn || live.signedOut) return 'Tap to sign in and see today’s orders';
+    if (!live.data) return live.error || 'Checking today’s orders…';
+    var r = (live.data.due || [])[0];
+    return r ? 'Next: ' + r.number + ' ' + (r.customer || r.title || '') + ' — ' + r.label : 'Nothing due today';
+  }
+
+  function subFor(holder, isHero) {
+    if (isEmpty(holder.t)) return { text: 'Tap to pick the app' };
+    if (isHero && holder.live === 'orders') return { text: ordersText(), live: true };
+    if (holder.live === 'printers') return { text: printersText(), live: true };
+    if (isHero && holder.sub) return { text: holder.sub };
+    var t = holder.t;
+    if (t.type === 'inkflow') return { text: 'InkFlow' };
+    if (t.type === 'url') return { text: String(t.url).replace(/^https?:\/\//i, '').split('/')[0] };
+    return null;
+  }
+
+  function ticketRow(holder, sub, onTap, onLong) {
+    var empty = isEmpty(holder.t);
+    var txt = h('span', { class: 'txt' }, [h('span', { class: 'nm', text: labelOf(holder) })]);
+    if (sub && sub.text) txt.appendChild(h('span', { class: 'sb' + (sub.live ? ' live' : '') }, [h('span', { text: sub.text })]));
+    var chev = h('span', { 'aria-hidden': 'true' });
+    chev.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>';
+    var b = h('button', { type: 'button', class: 't-row' + (empty ? ' empty' : '') }, [iconEl(holder), txt, chev.firstChild]);
+    press(b, onTap, onLong);
+    return b;
+  }
+
+  function renderTicket(mode) {
+    var tabs = $('t-tabs');
+    tabs.textContent = '';
+    MODES.forEach(function (m) {
+      var b = h('button', { type: 'button', 'aria-pressed': state.mode === m.id ? 'true' : 'false', text: m.label });
+      b.addEventListener('click', function () { setMode(m.id); });
+      tabs.appendChild(b);
+    });
+    var on = tabs.querySelector('[aria-pressed="true"]');
+    if (on) {
+      var left = on.offsetLeft - 8, right = on.offsetLeft + on.offsetWidth + 8 - tabs.clientWidth;
+      if (tabs.scrollLeft > left) tabs.scrollLeft = left; else if (tabs.scrollLeft < right) tabs.scrollLeft = right;
+    }
+
+    var dock = $('t-dock');
+    dock.textContent = '';
+    state.dock.forEach(function (d) {
+      var b = h('button', { type: 'button', 'aria-label': labelOf(d) });
+      if (isEmpty(d.t)) b.appendChild(h('span', { class: 'emptyslot', 'aria-hidden': 'true', text: '+' }));
+      else b.appendChild(iconEl(d));
+      press(b, function () { openTarget(d); }, function () { editHolder({ kind: 'dock', holder: d }); });
+      dock.appendChild(b);
+    });
+
+    var q = $('t-q').value.trim();
+    var searching = q.length > 0 || ticketSearchOpen;
+    $('ticket').classList.toggle('searching', searching);
+    if (searching) { renderTicketSearch(q); return; }
+
+    var info = TICKET[state.mode] || { no: '00', title: '' };
+    var mlabel = MODES.filter(function (m) { return m.id === state.mode; })[0];
+    $('t-no').textContent = 'Ticket ' + info.no + ' · ' + (mlabel ? mlabel.label : '');
+    $('t-title').textContent = info.title;
+
+    var banner = $('t-banner');
+    banner.textContent = '';
+    if (mode.hero.live === 'orders' && account.signedIn && !live.signedOut && live.data) {
+      var c = live.data.counts || {};
+      var l1 = h('span', null, [h('b', { text: (c.dueToday || 0) + ' due today' })]);
+      if (c.late) { l1.appendChild(document.createTextNode(' · ')); l1.appendChild(h('span', { class: 'late', text: c.late + ' late' })); }
+      var box = h('button', { type: 'button', class: 't-live' }, [
+        h('span', { class: 'stamp', text: live.error ? 'Old' : 'Live' }),
+        h('span', { class: 'lines' }, [l1, h('span', { text: (c.inProduction || 0) + ' in production · ' + (c.readyForPickup || 0) + ' ready for pickup' })])
+      ]);
+      box.addEventListener('click', function () { openTarget(mode.hero); });
+      banner.appendChild(box);
+    }
+
+    var rows = $('t-rows');
+    rows.textContent = '';
+    rows.appendChild(ticketRow(mode.hero, subFor(mode.hero, true), function () {
+      if (mode.hero.live === 'orders' && (!account.signedIn || live.signedOut)) openSettings(); else openTarget(mode.hero);
+    }, function () { editHolder({ kind: 'hero', holder: mode.hero }); }));
+    mode.tiles.forEach(function (t) {
+      rows.appendChild(ticketRow(t, subFor(t, false), function () { openTarget(t); }, function () { editHolder({ kind: 'tile', holder: t, list: mode.tiles }); }));
+    });
+
+    var chips = $('t-chips');
+    chips.textContent = '';
+    mode.hero.btns.forEach(function (b, i) {
+      var be = h('button', { type: 'button', class: i === 0 ? 'first' : '', text: (i === 0 && mode.hero.live === 'orders' ? '+ ' : '') + labelOf(b) });
+      press(be, function () { openTarget(b); }, function () { editHolder({ kind: 'herobtn', holder: b }); });
+      chips.appendChild(be);
+    });
+    var add = h('button', { type: 'button', text: '+ Add' });
+    add.addEventListener('click', function () {
+      pickApp('Pick the app to add to this ticket', function (a) {
+        mode.tiles.push(tile('small', 'white', { type: 'app', label: a.label, want: [a.label.toLowerCase()], pkg: a.pkg, act: a.act }));
+        save(); render();
+      });
+    });
+    chips.appendChild(add);
+  }
+
+  var ticketSearchOpen = false;
+
+  function renderTicketSearch(q) {
+    var ql = q.toLowerCase();
+    $('t-no').textContent = q ? 'Search · “' + q + '”' : 'All apps';
+    $('t-title').textContent = q ? 'Results' : 'Every app, A to Z';
+    $('t-banner').textContent = '';
+    var rows = $('t-rows');
+    rows.textContent = '';
+    rows.scrollTop = 0;
+    function done() { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); }
+
+    if (q) {
+      var acts = PAGES.filter(function (p) { return p.label.toLowerCase().indexOf(ql) >= 0; });
+      MODES.forEach(function (m) {
+        if (m.label.toLowerCase().indexOf(ql) === 0 && m.id !== state.mode) acts.push({ label: 'Go to ' + m.label, mode: m.id });
+      });
+      if (acts.length) {
+        rows.appendChild(h('div', { class: 't-group', text: 'Do something' }));
+        acts.forEach(function (p) {
+          var holder = { t: p.mode ? { type: 'mode', label: p.label } : pageT(p.label, p.path) };
+          rows.appendChild(ticketRow(holder, { text: p.mode ? 'Switch tickets' : 'InkFlow' }, function () {
+            done();
+            if (p.mode) { setMode(p.mode); render(); return; }
+            if (!N.openUrl(account.url + p.path)) toast("Couldn't open InkFlow");
+            render();
+          }, null));
+        });
+      }
+    }
+    var found = apps.filter(function (a) { return !ql || a.label.toLowerCase().indexOf(ql) >= 0; });
+    if (q) rows.appendChild(h('div', { class: 't-group', text: 'Apps' }));
+    if (!found.length) rows.appendChild(h('div', { class: 't-none', text: q ? 'No app matches “' + q + '”' : 'No apps found' }));
+    found.slice(0, q ? 40 : 1000).forEach(function (a) {
+      var holder = { t: { type: 'app', label: a.label, pkg: a.pkg, act: a.act } };
+      rows.appendChild(ticketRow(holder, null, function () {
+        if (N.launch(a.pkg, a.act)) { done(); render(); } else toast("Couldn't open " + a.label);
+      }, function () { appMenu(a); }));
+    });
+
+    var chips = $('t-chips');
+    chips.textContent = '';
+    if (q) {
+      var web = h('button', { type: 'button', class: 'first', text: 'Search the web' });
+      web.addEventListener('click', function () { N.openUrl('https://www.google.com/search?q=' + encodeURIComponent(q)); done(); render(); });
+      chips.appendChild(web);
+    }
+    var close = h('button', { type: 'button', text: 'Close' });
+    close.addEventListener('click', function () { done(); render(); });
+    chips.appendChild(close);
   }
 
   // ------------------------------------------------------------------ live numbers from InkFlow
@@ -701,6 +886,19 @@
         s.appendChild(go);
       }
 
+      s.appendChild(h('h2', { text: 'Look' }));
+      var looks = h('div', { class: 'row' });
+      [{ id: 'tiles', label: 'Press Sheet' }, { id: 'ticket', label: 'Job Ticket' }].forEach(function (lk) {
+        var b = opt(lk.label, function () {
+          state.style = lk.id; save(); closeSheet(); closeDrawer(); render();
+          toast(lk.id === 'ticket' ? 'Job Ticket look on' : 'Press Sheet look on');
+        });
+        b.setAttribute('aria-pressed', (state.style || 'tiles') === lk.id ? 'true' : 'false');
+        looks.appendChild(b);
+      });
+      s.appendChild(looks);
+      s.appendChild(h('p', { text: 'Both looks use the same modes, apps and InkFlow sign-in.' }));
+
       s.appendChild(h('h2', { text: 'Home screen' }));
       var isHome = false;
       try { isHome = !!N.isDefaultHome(); } catch (e) { isHome = false; }
@@ -711,8 +909,8 @@
           s2.appendChild(h('h2', { text: 'Start the layout over?' }));
           s2.appendChild(h('p', { text: 'All three modes and the dock go back to how they were when you installed Press Sheet. Your InkFlow sign-in stays.' }));
           s2.appendChild(opt('Yes, start over', function () {
-            var keepName = state.name;
-            state = defaults(); state.name = keepName;
+            var keepName = state.name, keepStyle = state.style;
+            state = defaults(); state.name = keepName; state.style = keepStyle;
             matchApps(); save(); closeSheet(); render();
           }, 'danger'));
           s2.appendChild(opt('Keep my layout', function () { closeSheet(); }));
@@ -727,6 +925,7 @@
   function closeTop() {
     if (sheetOpen) { closeSheet(); return true; }
     if (drawerIsOpen()) { closeDrawer(); return true; }
+    if (isTicket() && (ticketSearchOpen || $('t-q').value)) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); return true; }
     return false;
   }
 
@@ -761,6 +960,22 @@
     }, { passive: true });
 
     $('handle').addEventListener('click', openDrawer);
+    var paper = $('t-paper'), tx = 0, ty = 0, tat = 0;
+    paper.addEventListener('touchstart', function (e) { var t = e.touches[0]; tx = t.clientX; ty = t.clientY; tat = Date.now(); }, { passive: true });
+    paper.addEventListener('touchend', function (e) {
+      var t = e.changedTouches[0], dx = t.clientX - tx, dy = t.clientY - ty;
+      if (Date.now() - tat > 600 || sheetOpen || ticketSearchOpen || $('t-q').value) return;
+      if (e.target.closest && e.target.closest('#t-chips')) return;
+      if (Math.abs(dx) > 80 && Math.abs(dy) < 50) {
+        var i = MODES.map(function (m) { return m.id; }).indexOf(state.mode);
+        var next = MODES[i + (dx < 0 ? 1 : -1)];
+        if (next) setMode(next.id);
+      }
+    }, { passive: true });
+    $('t-q').addEventListener('focus', function () { if (!ticketSearchOpen) { ticketSearchOpen = true; render(); } });
+    $('t-q').addEventListener('input', function () { render(); });
+    $('t-gear').addEventListener('click', function () { openSettings(); });
+    press($('t-clock'), function () { openTarget(state.clock); }, function () { editHolder({ kind: 'clock', holder: state.clock }); });
     press($('clock'), function () { openTarget(state.clock); }, function () { editHolder({ kind: 'clock', holder: state.clock }); });
     $('gear').addEventListener('click', function () { openSettings(); });
     $('search').addEventListener('input', renderAppList);
@@ -771,7 +986,7 @@
 
   window.onNative = function (name, data) {
     if (name === 'back') { closeTop(); return; }
-    if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; return; }
+    if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; if (isTicket()) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); $('t-rows').scrollTop = 0; } return; }
     if (name === 'apps') { loadApps(); matchApps(); render(); if (drawerIsOpen()) renderAppList(); return; }
     if (name === 'resume') { loadAccount(); lastClock = ''; render(); maybeRefreshLive(false); return; }
     if (name === 'signin') { if (signInDone) { var fn = signInDone; signInDone = null; fn(data); } return; }
@@ -826,6 +1041,7 @@
       inkflowAccount: function () { return JSON.stringify({ url: 'https://inkflow.example', email: signedIn ? 'john@example.com' : '', name: signedIn ? 'John Sample' : '', signedIn: signedIn }); },
       inkflowSignIn: function () { setTimeout(function () { signedIn = true; window.onNative('signin', { ok: true }); }, 200); },
       inkflowSignOut: function () { signedIn = false; },
+      setBars: function () {},
       inkflowRefresh: function () {
         setTimeout(function () {
           window.onNative('live', { ok: true, data: {

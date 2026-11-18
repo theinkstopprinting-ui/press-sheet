@@ -11,6 +11,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
@@ -327,6 +328,30 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 // nothing to open
             }
+        }
+
+        /** Colours the status and navigation bars to match the current look. dark = dark icons. */
+        @JavascriptInterface
+        public void setBars(final String color, final boolean darkIcons) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        int c = Color.parseColor(color);
+                        getWindow().setStatusBarColor(c);
+                        getWindow().setNavigationBarColor(c);
+                        if (web != null) {
+                            web.setBackgroundColor(c);
+                        }
+                        View decor = getWindow().getDecorView();
+                        int flags = decor.getSystemUiVisibility();
+                        int light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                        decor.setSystemUiVisibility(darkIcons ? (flags | light) : (flags & ~light));
+                    } catch (Exception ignored) {
+                        // a bad colour leaves the bars as they were
+                    }
+                }
+            });
         }
 
         /** Android's "Default home app" screen, to switch to or away from Press Sheet. */

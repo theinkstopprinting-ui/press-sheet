@@ -25,6 +25,37 @@
 </main>
 <div id="dock"></div>
 
+<main id="ticket" hidden>
+  <header class="t-head">
+    <div class="t-hcol">
+      <button id="t-clock" type="button" aria-label="Open Clock"><span id="t-time"></span><span id="t-ampm"></span></button>
+      <div id="t-hline"></div>
+    </div>
+    <span class="t-stamp" aria-hidden="true">INK<br>STOP</span>
+  </header>
+  <div class="t-body">
+    <nav id="t-tabs" aria-label="Modes"></nav>
+    <section id="t-paper">
+      <div class="t-meta"><span id="t-no"></span><span>Hold a line to change it</span></div>
+      <h1 id="t-title"></h1>
+      <div id="t-banner"></div>
+      <div id="t-rows"></div>
+      <div id="t-chips"></div>
+    </section>
+    <div class="t-perf" aria-hidden="true"></div>
+  </div>
+  <div id="t-dock"></div>
+  <div class="t-bar">
+    <label class="t-search">
+      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <input id="t-q" type="search" placeholder="Type an app or a task" aria-label="Search apps and tasks" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <button id="t-gear" type="button" aria-label="Settings">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+    </button>
+  </div>
+</main>
+
 <section id="drawer" hidden aria-label="All apps">
   <div class="drawer-top">
     <input id="search" type="search" placeholder="Search apps" aria-label="Search apps" autocomplete="off" autocapitalize="off" spellcheck="false">
