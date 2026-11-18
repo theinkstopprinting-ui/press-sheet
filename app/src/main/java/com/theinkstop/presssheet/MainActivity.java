@@ -1,14 +1,17 @@
 package com.theinkstop.presssheet;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -16,7 +19,9 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.util.Size;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -59,6 +64,8 @@ public class MainActivity extends Activity {
     private static final String START_URL = "https://" + HOST + "/www/index.html";
     private static final String PREFS = "presssheet";
     private static final int ICON_PX = 144;
+    private static final int PHOTO_REQUEST = 41;
+    private static final String PARTIAL_PHOTOS = "android.permission.READ_MEDIA_VISUAL_USER_SELECTED";
 
     private WebView web;
     private SharedPreferences prefs;
@@ -79,7 +86,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
 
         web = new WebView(this);
-        web.setBackgroundColor(0xFFEEF1F6);
+        web.setBackgroundColor(0x00000000);
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         web.setVerticalScrollBarEnabled(false);
         web.setLongClickable(false);
@@ -177,7 +184,14 @@ public class MainActivity extends Activity {
                 while (path.startsWith("/")) {
                     path = path.substring(1);
                 }
-                if (path.startsWith("icon/")) {
+                if (path.startsWith("thumb/")) {
+                    byte[] jpg = thumbJpeg(path.substring(6));
+                    if (jpg != null) {
+                        Map<String, String> headers = new HashMap<String, String>();
+                        headers.put("Cache-Control", "max-age=3600");
+                        return new WebResourceResponse("image/jpeg", null, 200, "OK", headers, new ByteArrayInputStream(jpg));
+                    }
+                } else if (path.startsWith("icon/")) {
                     byte[] png = iconPng(path.substring(5), url.getQueryParameter("a"));
                     if (png != null) {
                         Map<String, String> headers = new HashMap<String, String>();
@@ -235,6 +249,89 @@ public class MainActivity extends Activity {
             return out.toByteArray();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- your photos (Home Base look)
+
+    private boolean granted(String permission) {
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private String photoPermission() {
+        return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
+    }
+
+    /** "granted", "partial" (only photos you picked), "ask" or "blocked" (turned off in Settings). */
+    private String photoAccess() {
+        if (granted(photoPermission())) {
+            return "granted";
+        }
+        if (Build.VERSION.SDK_INT >= 34 && granted(PARTIAL_PHOTOS)) {
+            return "partial";
+        }
+        boolean asked = prefs.getBoolean("photos_asked", false);
+        if (asked && !shouldShowRequestPermissionRationale(photoPermission())) {
+            return "blocked";
+        }
+        return "ask";
+    }
+
+    private String recentPhotoIds(int max) {
+        JSONArray out = new JSONArray();
+        if ("ask".equals(photoAccess()) || "blocked".equals(photoAccess())) {
+            return out.toString();
+        }
+        Cursor c = null;
+        try {
+            c = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    new String[]{MediaStore.Images.Media._ID}, null, null,
+                    MediaStore.Images.Media.DATE_ADDED + " DESC");
+            if (c != null) {
+                while (c.moveToNext() && out.length() < max) {
+                    out.put(String.valueOf(c.getLong(0)));
+                }
+            }
+        } catch (Exception ignored) {
+            // an empty list just shows the camera button
+        } finally {
+            if (c != null) {
+                c.close();
+            }
+        }
+        return out.toString();
+    }
+
+    private byte[] thumbJpeg(String id) {
+        if (id == null || !id.matches("[0-9]{1,19}")) {
+            return null;
+        }
+        try {
+            long n = Long.parseLong(id);
+            Bitmap bmp;
+            if (Build.VERSION.SDK_INT >= 29) {
+                Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, n);
+                bmp = getContentResolver().loadThumbnail(uri, new Size(256, 256), null);
+            } else {
+                bmp = MediaStore.Images.Thumbnails.getThumbnail(getContentResolver(), n, MediaStore.Images.Thumbnails.MINI_KIND, null);
+            }
+            if (bmp == null) {
+                return null;
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            bmp.compress(Bitmap.CompressFormat.JPEG, 85, out);
+            bmp.recycle();
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == PHOTO_REQUEST) {
+            tellPage("photos", "null");
         }
     }
 
@@ -352,6 +449,72 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+        }
+
+        @JavascriptInterface
+        public String photoAccessState() {
+            return photoAccess();
+        }
+
+        /** Asks Android for photo access; the answer arrives as onNative("photos"). */
+        @JavascriptInterface
+        public void requestPhotoAccess() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    prefs.edit().putBoolean("photos_asked", true).apply();
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        requestPermissions(new String[]{Manifest.permission.READ_MEDIA_IMAGES, PARTIAL_PHOTOS}, PHOTO_REQUEST);
+                    } else {
+                        requestPermissions(new String[]{photoPermission()}, PHOTO_REQUEST);
+                    }
+                }
+            });
+        }
+
+        /** Newest photos first, as a JSON list of ids (thumbnails are at /thumb/<id>). */
+        @JavascriptInterface
+        public String recentPhotos(int max) {
+            return recentPhotoIds(Math.max(1, Math.min(max, 60)));
+        }
+
+        @JavascriptInterface
+        public boolean openPhoto(String id) {
+            try {
+                Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, Long.parseLong(id));
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(uri, "image/*");
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(intent);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** The phone's camera, ready for a still photo. */
+        @JavascriptInterface
+        public boolean openCamera() {
+            try {
+                Intent intent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** Press Sheet's own page in Settings, for turning photo access back on. */
+        @JavascriptInterface
+        public void openOwnSettings() {
+            try {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception ignored) {
+                // nothing to open
+            }
         }
 
         /** Android's "Default home app" screen, to switch to or away from Press Sheet. */

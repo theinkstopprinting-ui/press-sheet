@@ -8,7 +8,10 @@ A home screen (launcher) for Android with a big clock and five modes you switch 
 - **Games**: Disney Solitaire, Coin Master, Video Poker and the rest
 - **Financial**: PayPal, insurance, health benefits and fuel
 
-There are two looks, picked in Settings: **Press Sheet** (big colour tiles) and **Job Ticket**
+There are three looks, picked in Settings. **Home Base** (the default from 1.0.6) shows your own
+wallpaper, a camera button with your recent photos, a live InkFlow card, a Main page with folders,
+pages for Shop / Reselling / Home / Games / Financial, and an all-apps list with search and an A to Z
+strip. The other two are **Press Sheet** (big colour tiles) and **Job Ticket**
 (a blue work-order screen with tabs, list rows and a search bar at the bottom that finds apps and
 InkFlow tasks). Both use the same modes, apps and InkFlow sign-in.
 
@@ -21,6 +24,7 @@ Swipe up (or tap **All apps**) for every app with search; the gear there opens S
   browser it runs with sample apps, which is how the layout is tested.
 - `MainActivity.java` shows that page in a web view that only loads the bundled files, and is the
   bridge to the phone: the app list, icons, opening apps, the saved layout.
+- Recent photos are read on the phone only (Android asks once) and never sent anywhere.
 - The only network use is asking your InkFlow for the Shop tiles' numbers
   (`/api/mobile/login` once, then `/api/mobile/launcher`), with the same kind of 30-day sign-in
   InkStop Mail uses. The password is not kept on the phone.
@@ -28,4 +32,4 @@ Swipe up (or tap **All apps**) for every app with search; the gear there opens S
 Every push to `main` builds a signed APK on GitHub, publishes it under Releases, then installs it
 on an emulator, opens it and saves screenshots.
 
-Fonts: Bricolage Grotesque, DM Sans, Archivo and IBM Plex Mono (SIL Open Font License, see `assets/www/fonts`).
+Fonts: Bricolage Grotesque, DM Sans, Archivo, IBM Plex Mono and Manrope (SIL Open Font License, see `assets/www/fonts`).

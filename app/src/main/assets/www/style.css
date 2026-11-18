@@ -5,6 +5,10 @@
 @font-face { font-family: "Archivo"; font-weight: 900; src: url(fonts/archivo-latin-900-normal.woff2) format("woff2"); }
 @font-face { font-family: "Plex Mono"; font-weight: 400; src: url(fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); }
 @font-face { font-family: "Plex Mono"; font-weight: 500; src: url(fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 500; src: url(fonts/manrope-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 600; src: url(fonts/manrope-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 700; src: url(fonts/manrope-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 800; src: url(fonts/manrope-latin-800-normal.woff2) format("woff2"); }
 @font-face { font-family: "DM Sans"; font-weight: 400; src: url(fonts/dm-sans-latin-400-normal.woff2) format("woff2"); }
 @font-face { font-family: "DM Sans"; font-weight: 500; src: url(fonts/dm-sans-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "DM Sans"; font-weight: 700; src: url(fonts/dm-sans-latin-700-normal.woff2) format("woff2"); }
@@ -213,3 +217,88 @@ body.ticket { background: #2440A8; }
 #ticket.searching .t-head, #ticket.searching #t-dock { display: none; }
 
 body.ticket #toast { bottom: auto; top: 120px; }
+
+/* ------------------------------------------------------------------ Home Base look */
+html.base, body.base { background: transparent; }
+#base {
+  --panel: rgba(15,17,21,.58); --bink: #0F1115;
+  position: absolute; inset: 0; color: #fff; font-family: "Manrope", system-ui, sans-serif;
+  display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 12px;
+  background: linear-gradient(180deg, rgba(0,0,0,.34) 0%, rgba(0,0,0,0) 26%, rgba(0,0,0,0) 60%, rgba(0,0,0,.42) 100%);
+}
+#base .shadow, .b-head, .b-photos-top, #b-grid .lbl { text-shadow: 0 1px 4px rgba(0,0,0,.75); }
+.b-head { flex: none; }
+#b-clock { display: flex; flex-direction: column; gap: 2px; color: #fff; min-height: 44px; }
+.b-timeline { display: flex; align-items: baseline; gap: 6px; }
+#b-time { font-weight: 800; font-size: clamp(48px, 15vw, 62px); line-height: .9; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+#b-ampm { font-weight: 800; font-size: 17px; }
+#b-hline { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#b-photos { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.b-photos-top { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; }
+#b-photosapp { height: 32px; padding: 0 12px; border-radius: 16px; background: var(--panel); color: #fff; font-size: 12px; font-weight: 700; text-shadow: none; }
+#b-strip { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+#b-strip::-webkit-scrollbar { display: none; }
+#b-strip button { flex: none; width: 66px; height: 66px; border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.18); }
+#b-strip button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#b-strip .cam { background: #fff; color: var(--bink); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+#b-strip .ask { width: auto; padding: 0 14px; background: var(--panel); color: #fff; font-size: 13px; font-weight: 700; line-height: 1.25; text-align: left; }
+#b-widget { flex: none; }
+#b-widget:empty { display: none; }
+.b-card { width: 100%; border-radius: 20px; background: var(--panel); color: #fff; padding: 10px 12px; display: flex; align-items: center; gap: 12px; }
+.b-card .ico, .b-card .mono { width: 40px; height: 40px; border-radius: 12px; }
+.b-card .mono { background: #2F6FEB; color: #fff; font-family: "Manrope", system-ui, sans-serif; }
+.b-card .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.b-card .t1 { font-size: 15px; font-weight: 800; }
+.b-card .t2 { font-size: 12px; color: #DCE1EA; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-card .t2 .late { color: #FFB3B3; font-weight: 800; }
+.b-card .go { flex: none; height: 38px; padding: 0 12px; border-radius: 19px; background: #fff; color: var(--bink); font-size: 13px; font-weight: 800; display: flex; align-items: center; }
+#b-tabs { flex: none; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+#b-tabs::-webkit-scrollbar { display: none; }
+#b-tabs button { flex: none; height: 34px; padding: 0 13px; border-radius: 17px; background: var(--panel); color: #fff; font-size: 13px; font-weight: 700; white-space: nowrap; }
+#b-tabs button[aria-pressed="true"] { background: #fff; color: var(--bink); }
+#b-grid { flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-width: none; align-content: start; padding-bottom: 6px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 4px; }
+.b-app { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; padding: 2px 0; color: #fff; }
+.b-app:active .ico, .b-app:active .mono, .b-app:active .b-fold { transform: scale(.92); }
+.b-app .ico, .b-app .mono { width: 52px; height: 52px; border-radius: 16px; }
+.b-app .mono { background: rgba(255,255,255,.26); color: #fff; font-family: "Manrope", system-ui, sans-serif; font-weight: 800; }
+.b-app.empty .mono { background: transparent; border: 2px dashed rgba(255,255,255,.7); }
+.b-app .lbl { font-size: 11px; font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-fold { width: 52px; height: 52px; border-radius: 16px; background: rgba(255,255,255,.3); padding: 6px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.b-fold .ico, .b-fold .mono, .b-fold span { width: 100%; height: 100%; border-radius: 6px; font-size: 8px; }
+.b-fold .mono { background: rgba(255,255,255,.4); }
+.b-spacer { display: none; }
+#b-grid::-webkit-scrollbar { display: none; }
+#b-dock { flex: none; display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 30px; background: var(--panel); }
+#b-dock button { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 26px; }
+#b-dock .ico, #b-dock .mono { width: 48px; height: 48px; border-radius: 15px; }
+#b-dock .mono { background: rgba(255,255,255,.26); color: #fff; font-family: "Manrope", system-ui, sans-serif; }
+#b-dock .emptyslot { width: 46px; height: 46px; border-radius: 23px; border: 2px dashed rgba(255,255,255,.7); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; }
+#b-searchbtn { flex: none; height: 46px; border-radius: 23px; background: rgba(255,255,255,.92); color: #4A5160; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-size: 15px; font-weight: 600; }
+#b-searchbtn svg { color: var(--bink); }
+
+#b-all { position: absolute; inset: 0; z-index: 6; background: #F5F6F8; color: #0F1115; font-family: "Manrope", system-ui, sans-serif; display: flex; flex-direction: column; gap: 10px; padding: 14px 30px 0 16px; animation: up .18s ease-out; }
+.b-all-top { display: flex; gap: 8px; flex: none; }
+#b-q { flex: 1; min-width: 0; height: 48px; border-radius: 24px; border: 0; background: #fff; padding: 0 18px; font: inherit; font-size: 16px; color: #0F1115; box-shadow: 0 1px 0 #E2E5EA; -webkit-user-select: text; user-select: text; }
+#b-q::placeholder { color: #5B6270; }
+#b-gear { width: 48px; height: 48px; border-radius: 24px; background: #fff; display: flex; align-items: center; justify-content: center; flex: none; box-shadow: 0 1px 0 #E2E5EA; }
+#b-chips { flex: none; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-right: -14px; }
+#b-chips::-webkit-scrollbar { display: none; }
+#b-chips button { flex: none; height: 36px; padding: 0 13px; border-radius: 18px; background: #E9ECF1; font-size: 13px; font-weight: 700; white-space: nowrap; }
+#b-chips button[aria-pressed="true"] { background: #0F1115; color: #fff; }
+#b-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding-bottom: 24px; display: flex; flex-direction: column; gap: 14px; }
+#b-list::-webkit-scrollbar { display: none; }
+.b-sec { display: flex; flex-direction: column; gap: 8px; }
+.b-sec h3 { margin: 0; font-size: 13px; font-weight: 800; color: #4A5160; }
+.b-sgrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 4px; }
+#b-list .b-app { color: #0F1115; }
+#b-list .b-app .ico, #b-list .b-app .mono { width: 48px; height: 48px; border-radius: 15px; }
+#b-list .b-app .mono { background: #E1E5EC; color: #0F1115; }
+#b-list .b-app .lbl { font-weight: 600; white-space: normal; text-align: center; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.b-act { width: 100%; min-height: 52px; border-radius: 16px; background: #fff; display: flex; align-items: center; gap: 12px; padding: 0 14px; font-size: 15px; font-weight: 700; box-shadow: 0 1px 0 #E2E5EA; }
+.b-act small { margin-left: auto; font-size: 12px; font-weight: 600; color: #5B6270; }
+.b-none { color: #5B6270; padding: 12px 0; }
+#b-rail { position: absolute; right: 2px; top: 130px; bottom: 24px; width: 26px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; touch-action: none; }
+#b-rail span { font-size: 10px; font-weight: 800; color: #4A5160; line-height: 1; }
+#b-rail span.off { color: #B8BDC7; }
+#b-rail span.on { color: #E8590C; }
+body.base #toast { bottom: 150px; }

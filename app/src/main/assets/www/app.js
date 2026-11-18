@@ -162,6 +162,73 @@
     };
   }
 
+  // ------------------------------------------------------------------ Home Base layout
+
+  var BASE_PAGES = [
+    { id: 'shop', label: 'Shop' }, { id: 'show', label: 'Reselling' }, { id: 'home', label: 'Home' },
+    { id: 'games', label: 'Games' }, { id: 'money', label: 'Financial' }
+  ];
+  var BASE_MAX = 30;
+
+  function baseExtras() {
+    return {
+      shop: [pageT('Production', '/production'), pageT('Printers', '/printers'), pageT('Scan a work order', '/scan'),
+        appT('Nextcloud'), appT('Canva'), appT('Fiverr'), appT('Brother', ['brother iprint', 'iprint&scan', 'brother'], true),
+        appT('Faire'), appT('Dropbox'), appT('Tailscale'), appT('ntfy'), appT('Claude')],
+      show: [appT('Vinted', ['vinted'], true), appT('Camera'), appT('Canva'), appT('PayPal POS', ['paypal pos', 'paypal zettle'])],
+      home: [appT('Home Assistant', ['home assistant']), appT('Ring'), appT('Blink'), appT('Alexa', ['amazon alexa', 'alexa']),
+        appT('Tapo'), appT('Roku', ['roku', 'the roku app'], true), appT('Family Link', ['family link', 'google family link'], true),
+        appT('Calendar'), appT('Hallow')],
+      games: [appT('Play Store', ['play store', 'google play store'])],
+      money: [appT('Calculator')]
+    };
+  }
+
+  function targetKey(t) {
+    if (!t) return '';
+    if (t.type === 'app') return 'a:' + (t.pkg || (t.want && t.want[0]) || t.label).toLowerCase();
+    if (t.type === 'inkflow') return 'i:' + t.path;
+    if (t.type === 'url') return 'u:' + t.url;
+    return 'x:' + t.label;
+  }
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  function seedBase(s) {
+    var extras = baseExtras();
+    var pages = {};
+    BASE_PAGES.forEach(function (p) {
+      var mode = s.modes[p.id];
+      var list = [], seen = {};
+      function add(t) {
+        if (!t) return;
+        var k = targetKey(t);
+        if (seen[k] || list.length >= BASE_MAX) return;
+        seen[k] = true;
+        list.push({ t: clone(t) });
+      }
+      if (mode) {
+        add(mode.hero.t);
+        mode.hero.btns.forEach(function (b) { add(b.t); });
+        mode.tiles.forEach(function (x) { add(x.t); });
+      }
+      (extras[p.id] || []).forEach(add);
+      pages[p.id] = list;
+    });
+    var main = BASE_PAGES.map(function (p) { return { folder: p.id }; });
+    [pageT('InkFlow', '/dashboard'), appT('Whatnot'), appT('Lister', ['lister', 'snaplist'], true), appT('Family Hub', ['family hub']),
+      appT('Claude'), appT('Photos', ['photos', 'google photos', 'gallery'], true), appT('Immich'), appT('Jellyfin'),
+      appT('Calendar'), appT('Maps'), appT('Nextcloud'), appT('YouTube'), appT('Starbucks'), appT('PayPal', ['paypal']),
+      appT('Settings')].forEach(function (t) { main.push({ t: t }); });
+    return {
+      page: 'main',
+      main: main,
+      pages: pages,
+      dock: [{ t: appT('Phone') }, { t: appT('Messages') }, { t: appT('Camera') }, { t: appT('InkStop Mail', ['inkstop mail']) }, { t: appT('Chrome') }],
+      photos: { t: appT('Photos', ['photos', 'google photos', 'gallery'], true) }
+    };
+  }
+
   function loadState() {
     var s = null;
     var upgraded = false;
@@ -178,6 +245,8 @@
       MODES.every(function (m) { return !!s.modes[m.id]; });
     if (!complete) s = defaults();
     if (upgraded) { state = s; save(); }
+    if (!s.base) s.base = seedBase(s);
+    if (!s.baseIntroduced) { s.baseIntroduced = true; s.style = 'base'; state = s; save(); }
     if (!s.modes[s.mode]) s.mode = 'shop';
     return s;
   }
@@ -195,6 +264,12 @@
     });
     state.dock.forEach(function (d) { if (d.t) fn(d.t); });
     if (state.clock && state.clock.t) fn(state.clock.t);
+    if (state.base) {
+      state.base.main.forEach(function (it) { if (it.t) fn(it.t); });
+      Object.keys(state.base.pages).forEach(function (k) { state.base.pages[k].forEach(function (it) { if (it.t) fn(it.t); }); });
+      state.base.dock.forEach(function (d) { if (d.t) fn(d.t); });
+      if (state.base.photos && state.base.photos.t) fn(state.base.photos.t);
+    }
   }
 
   function findApp(want) {
@@ -323,6 +398,9 @@
     $('t-time').textContent = $('time').textContent;
     $('t-ampm').textContent = $('ampm').textContent;
     $('t-hline').textContent = $('dateline').textContent + ' \u00b7 ' + greeting();
+    $('b-time').textContent = $('time').textContent;
+    $('b-ampm').textContent = $('ampm').textContent;
+    $('b-hline').textContent = $('dateline').textContent + ' \u00b7 ' + greeting();
   }
 
   function renderModes() {
@@ -450,17 +528,24 @@
   }
 
   function isTicket() { return state.style === 'ticket'; }
+  function isBase() { return state.style === 'base'; }
 
   function render() {
     var mode = state.modes[state.mode];
     var ticket = isTicket();
+    var base = isBase();
     document.body.classList.toggle('ticket', ticket);
-    $('home').hidden = ticket;
-    $('dock').hidden = ticket;
+    document.body.classList.toggle('base', base);
+    document.documentElement.classList.toggle('base', base);
+    $('home').hidden = ticket || base;
+    $('dock').hidden = ticket || base;
     $('ticket').hidden = !ticket;
-    try { if (N.setBars) N.setBars(ticket ? '#2440A8' : '#EEF1F6', !ticket); } catch (e) { /* older app */ }
+    $('base').hidden = !base;
+    if (!base) $('b-all').hidden = true;
+    try { if (N.setBars) N.setBars(base ? '#00000000' : ticket ? '#2440A8' : '#EEF1F6', !ticket && !base); } catch (e) { /* older app */ }
     lastClock = '';
     tick();
+    if (base) { renderBase(); return; }
     if (ticket) { renderTicket(mode); return; }
     renderModes();
     var grid = $('grid');
@@ -638,6 +723,430 @@
     chips.appendChild(close);
   }
 
+  // ------------------------------------------------------------------ Home Base look
+
+  var photoIds = [];
+  var photoState = 'ask';
+  var allFilter = 'all';
+
+  function loadPhotos() {
+    try { photoState = N.photoAccessState ? N.photoAccessState() : 'ask'; } catch (e) { photoState = 'ask'; }
+    try { photoIds = (photoState === 'granted' || photoState === 'partial') ? JSON.parse(N.recentPhotos(24) || '[]') : []; } catch (e) { photoIds = []; }
+  }
+
+  function thumbUrl(id) { return N.thumbUrl ? N.thumbUrl(id) : '/thumb/' + encodeURIComponent(id); }
+
+  function basePageLabel(id) {
+    if (id === 'main') return 'Main';
+    var p = BASE_PAGES.filter(function (x) { return x.id === id; })[0];
+    return p ? p.label : id;
+  }
+
+  function baseList(id) { return id === 'main' ? state.base.main : state.base.pages[id]; }
+
+  function setBasePage(id) {
+    if (state.base.page === id) return;
+    state.base.page = id;
+    save();
+    renderBase();
+    maybeRefreshLive(false);
+  }
+
+  function renderStrip() {
+    var strip = $('b-strip');
+    strip.textContent = '';
+    var cam = h('button', { type: 'button', class: 'cam', 'aria-label': 'Open the camera' });
+    cam.innerHTML = '<svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg><span>CAMERA</span>';
+    cam.addEventListener('click', function () {
+      if (N.openCamera && N.openCamera()) return;
+      openTarget({ t: appT('Camera') });
+    });
+    strip.appendChild(cam);
+    if (photoState === 'ask' || photoState === 'blocked') {
+      var ask = h('button', { type: 'button', class: 'ask', text: photoState === 'ask' ? 'Show my recent photos here' : 'Photos are off — tap to turn on in Settings' });
+      ask.addEventListener('click', function () {
+        if (photoState === 'ask') N.requestPhotoAccess(); else N.openOwnSettings();
+      });
+      strip.appendChild(ask);
+      return;
+    }
+    if (!photoIds.length) {
+      strip.appendChild(h('button', { type: 'button', class: 'ask', text: 'No photos yet' }));
+      return;
+    }
+    photoIds.forEach(function (id, i) {
+      var b = h('button', { type: 'button', 'aria-label': 'Photo ' + (i + 1) }, [h('img', { alt: '', loading: 'lazy', src: thumbUrl(id) })]);
+      b.addEventListener('click', function () { if (!N.openPhoto(id)) toast("Couldn't open that photo"); });
+      strip.appendChild(b);
+    });
+    if (photoState === 'partial') {
+      var more = h('button', { type: 'button', class: 'ask', text: 'Show more photos' });
+      more.addEventListener('click', function () { N.requestPhotoAccess(); });
+      strip.appendChild(more);
+    }
+  }
+
+  function renderBaseWidget() {
+    var box = $('b-widget');
+    box.textContent = '';
+    var page = state.base.page;
+    if (page !== 'main' && page !== 'shop') return;
+    var holder = { t: pageT('InkFlow', '/dashboard') };
+    var t2, t3;
+    if (!account.signedIn || live.signedOut) { t2 = 'Tap to sign in and see today’s orders'; t3 = ''; }
+    else if (!live.data) { t2 = live.error || 'Checking today’s orders…'; t3 = ''; }
+    else {
+      var c = live.data.counts || {};
+      t2 = h('span', null, [(c.dueToday || 0) + ' due today' + (c.late ? ' · ' : '')]);
+      if (c.late) t2.appendChild(h('span', { class: 'late', text: c.late + ' late' }));
+      t2.appendChild(document.createTextNode(' · ' + (c.inProduction || 0) + ' in production'));
+      t3 = printersText();
+    }
+    var txt = h('span', { class: 'txt' }, [h('span', { class: 't1', text: 'InkFlow' }), h('span', { class: 't2' }, [t2])]);
+    if (t3) txt.appendChild(h('span', { class: 't2', text: t3 }));
+    var go = h('span', { class: 'go', text: 'New order' });
+    var card = h('button', { type: 'button', class: 'b-card' }, [iconEl(holder), txt, go]);
+    card.addEventListener('click', function (e) {
+      if (!account.signedIn || live.signedOut) { openSettings(); return; }
+      if (e.target === go) openTarget({ t: pageT('New order', '/orders/new') });
+      else openTarget(holder);
+    });
+    box.appendChild(card);
+  }
+
+  function folderIcon(id) {
+    var list = state.base.pages[id] || [];
+    var box = h('span', { class: 'b-fold', 'aria-hidden': 'true' });
+    list.slice(0, 4).forEach(function (it) { box.appendChild(iconEl(it)); });
+    for (var i = list.length; i < 4; i++) box.appendChild(h('span', null));
+    return box;
+  }
+
+  function baseItem(list, it, pageId, afterTap) {
+    if (it.folder) {
+      var name = it.name || basePageLabel(it.folder);
+      var fb = h('button', { type: 'button', class: 'b-app' }, [folderIcon(it.folder), h('span', { class: 'lbl', text: name })]);
+      press(fb, function () { if (afterTap) afterTap(); openFolder(it.folder); }, function () { baseItemMenu(list, it, pageId); });
+      return fb;
+    }
+    var empty = isEmpty(it.t);
+    var b = h('button', { type: 'button', class: 'b-app' + (empty ? ' empty' : '') }, [iconEl(it), h('span', { class: 'lbl', text: labelOf(it) })]);
+    press(b, function () { if (afterTap) afterTap(); openTarget(it); }, function () { baseItemMenu(list, it, pageId); });
+    return b;
+  }
+
+  function renderBase() {
+    if (!state.base) { state.base = seedBase(state); save(); }
+    renderStrip();
+    renderBaseWidget();
+
+    var tabs = $('b-tabs');
+    tabs.textContent = '';
+    ['main'].concat(BASE_PAGES.map(function (p) { return p.id; })).forEach(function (id) {
+      var b = h('button', { type: 'button', 'aria-pressed': state.base.page === id ? 'true' : 'false', text: basePageLabel(id) });
+      b.addEventListener('click', function () { setBasePage(id); });
+      tabs.appendChild(b);
+    });
+    var on = tabs.querySelector('[aria-pressed="true"]');
+    if (on) {
+      var left = on.offsetLeft - 16, right = on.offsetLeft + on.offsetWidth + 16 - tabs.clientWidth;
+      if (tabs.scrollLeft > left) tabs.scrollLeft = left; else if (tabs.scrollLeft < right) tabs.scrollLeft = right;
+    }
+
+    var grid = $('b-grid');
+    grid.textContent = '';
+    var pageId = state.base.page;
+    var list = baseList(pageId) || [];
+    var keep = grid.getAttribute('data-page') === pageId ? grid.scrollTop : 0;
+    grid.setAttribute('data-page', pageId);
+    list.forEach(function (it) { grid.appendChild(baseItem(list, it, pageId)); });
+    if (list.length < 60) {
+      var add = h('button', { type: 'button', class: 'b-app empty' }, [h('span', { class: 'mono', 'aria-hidden': 'true', text: '+' }), h('span', { class: 'lbl', text: 'Add app' })]);
+      add.addEventListener('click', function () { addToBase(pageId); });
+      grid.appendChild(add);
+    }
+    grid.scrollTop = keep;
+
+    var dock = $('b-dock');
+    dock.textContent = '';
+    state.base.dock.forEach(function (d) {
+      var b = h('button', { type: 'button', 'aria-label': labelOf(d) });
+      if (isEmpty(d.t)) b.appendChild(h('span', { class: 'emptyslot', 'aria-hidden': 'true', text: '+' }));
+      else b.appendChild(iconEl(d));
+      press(b, function () { openTarget(d); }, function () { editHolder({ kind: 'clock', holder: d }); });
+      dock.appendChild(b);
+    });
+    if (!$('b-all').hidden) renderAll();
+  }
+
+  function addToBase(pageId) {
+    pickApp('Pick the app to add to ' + basePageLabel(pageId), function (a) {
+      var list = baseList(pageId);
+      list.push({ t: { type: 'app', label: a.label, want: [a.label.toLowerCase()], pkg: a.pkg, act: a.act } });
+      save(); renderBase(); toast('Added to ' + basePageLabel(pageId));
+    });
+  }
+
+  function openFolder(id) {
+    var list = state.base.pages[id];
+    openSheet(function (s) {
+      s.appendChild(h('h2', { text: basePageLabel(id) }));
+      var g = h('div', { class: 'b-sgrid' });
+      g.style.display = 'grid';
+      g.style.gridTemplateColumns = 'repeat(4, minmax(0, 1fr))';
+      g.style.gap = '14px 6px';
+      list.forEach(function (it) {
+        var b = baseItem(list, it, id, closeSheet);
+        b.style.color = '#0F1115';
+        var m = b.querySelector('.mono');
+        if (m) { m.style.background = '#E1E5EC'; m.style.color = '#0F1115'; }
+        g.appendChild(b);
+      });
+      if (!list.length) s.appendChild(h('p', { text: 'Nothing here yet.' }));
+      s.appendChild(g);
+      var row = h('div', { class: 'row' });
+      row.appendChild(opt('+ Add apps', function () { addToBase(id); }, 'dark'));
+      row.appendChild(opt('Open as page', function () { closeSheet(); setBasePage(id); }));
+      s.appendChild(row);
+    });
+  }
+
+  function baseItemMenu(list, it, pageId) {
+    openSheet(function (s) {
+      s.appendChild(h('h2', { text: it.folder ? (it.name || basePageLabel(it.folder)) : labelOf(it) }));
+      if (it.folder) {
+        s.appendChild(opt('Open as page', function () { closeSheet(); setBasePage(it.folder); }));
+      } else {
+        s.appendChild(opt('Choose an app', function () {
+          pickApp('Pick the app for this spot', function (a) {
+            it.t = { type: 'app', label: a.label, want: [a.label.toLowerCase()], pkg: a.pkg, act: a.act };
+            delete it.name; save(); renderBase();
+          });
+        }));
+        s.appendChild(opt('Open an InkFlow page', function () {
+          openSheet(function (s2) {
+            s2.appendChild(h('h2', { text: 'InkFlow page' }));
+            PAGES.forEach(function (p) {
+              s2.appendChild(opt(p.label, function () { it.t = pageT(p.label, p.path); delete it.name; save(); closeSheet(); renderBase(); }));
+            });
+          });
+        }));
+        s.appendChild(opt('Rename', function () {
+          openSheet(function (s2) {
+            var f = field('Name under the icon', labelOf(it));
+            s2.appendChild(h('h2', { text: 'Rename' }));
+            s2.appendChild(f.el);
+            s2.appendChild(opt('Save', function () {
+              var v = f.input.value.trim();
+              if (v) it.name = v; else delete it.name;
+              save(); closeSheet(); renderBase();
+            }, 'dark'));
+          });
+        }));
+        if (it.t && it.t.type === 'app' && it.t.pkg) s.appendChild(opt('App info', function () { closeSheet(); N.appInfo(it.t.pkg); }));
+      }
+      var move = h('div', { class: 'row' });
+      move.appendChild(opt('Move earlier', function () {
+        var at = list.indexOf(it);
+        if (at > 0) { list.splice(at, 1); list.splice(at - 1, 0, it); save(); renderBase(); }
+      }));
+      move.appendChild(opt('Move later', function () {
+        var at = list.indexOf(it);
+        if (at >= 0 && at < list.length - 1) { list.splice(at, 1); list.splice(at + 1, 0, it); save(); renderBase(); }
+      }));
+      s.appendChild(move);
+      var others = ['main'].concat(BASE_PAGES.map(function (p) { return p.id; })).filter(function (x) { return x !== pageId; });
+      if (!it.folder) {
+        s.appendChild(opt('Copy to another page', function () {
+          openSheet(function (s2) {
+            s2.appendChild(h('h2', { text: 'Copy to…' }));
+            others.forEach(function (pid) {
+              s2.appendChild(opt(basePageLabel(pid), function () {
+                baseList(pid).push(clone(it)); save(); closeSheet(); renderBase(); toast('Copied to ' + basePageLabel(pid));
+              }));
+            });
+          });
+        }));
+      }
+      s.appendChild(opt(it.folder ? 'Remove folder from Main' : 'Remove from ' + basePageLabel(pageId), function () {
+        var at = list.indexOf(it);
+        if (at >= 0) list.splice(at, 1);
+        save(); closeSheet(); renderBase();
+      }, 'danger'));
+    });
+  }
+
+  // ---- all apps: search, category chips, A to Z strip
+
+  function openAll(focus) {
+    $('b-all').hidden = false;
+    $('b-q').value = '';
+    allFilter = 'all';
+    renderAll();
+    $('b-list').scrollTop = 0;
+    if (focus) setTimeout(function () { $('b-q').focus(); }, 60);
+  }
+
+  function closeAll() {
+    $('b-all').hidden = true;
+    $('b-q').blur();
+  }
+
+  function appButton(a) {
+    var holder = { t: { type: 'app', label: a.label, pkg: a.pkg, act: a.act } };
+    var b = h('button', { type: 'button', class: 'b-app' }, [iconEl(holder), h('span', { class: 'lbl', text: a.label })]);
+    press(b, function () { if (N.launch(a.pkg, a.act)) closeAll(); else toast("Couldn't open " + a.label); }, function () { baseAppMenu(a); });
+    return b;
+  }
+
+  function baseAppMenu(a) {
+    openSheet(function (s) {
+      s.appendChild(h('h2', { text: a.label }));
+      ['main'].concat(BASE_PAGES.map(function (p) { return p.id; })).forEach(function (pid) {
+        s.appendChild(opt('Add to ' + basePageLabel(pid), function () {
+          baseList(pid).push({ t: { type: 'app', label: a.label, want: [a.label.toLowerCase()], pkg: a.pkg, act: a.act } });
+          save(); closeSheet(); renderBase(); toast('Added to ' + basePageLabel(pid));
+        }));
+      });
+      s.appendChild(opt('App info', function () { closeSheet(); N.appInfo(a.pkg); }));
+    });
+  }
+
+  function renderAll() {
+    var chips = $('b-chips');
+    chips.textContent = '';
+    [{ id: 'all', label: 'All' }].concat(BASE_PAGES).forEach(function (c) {
+      var b = h('button', { type: 'button', 'aria-pressed': allFilter === c.id ? 'true' : 'false', text: c.label });
+      b.addEventListener('click', function () { allFilter = c.id; renderAll(); $('b-list').scrollTop = 0; });
+      chips.appendChild(b);
+    });
+
+    var q = $('b-q').value.trim().toLowerCase();
+    var listEl = $('b-list');
+    listEl.textContent = '';
+    var rail = $('b-rail');
+    rail.textContent = '';
+    rail.hidden = !!q || allFilter !== 'all';
+
+    if (q) {
+      var acts = [];
+      if ('camera'.indexOf(q) === 0 || 'photo'.indexOf(q) === 0 || q.indexOf('pic') === 0) {
+        acts.push({ label: 'Take a photo', note: 'Camera', run: function () { if (!(N.openCamera && N.openCamera())) openTarget({ t: appT('Camera') }); } });
+        acts.push({ label: 'Open your photos', note: 'Photos', run: function () { openTarget(state.base.photos); } });
+      }
+      PAGES.filter(function (p) { return p.label.toLowerCase().indexOf(q) >= 0; }).forEach(function (p) {
+        acts.push({ label: p.label, note: 'InkFlow', run: function () { if (!N.openUrl(account.url + p.path)) toast("Couldn't open InkFlow"); } });
+      });
+      ['main'].concat(BASE_PAGES.map(function (p) { return p.id; })).forEach(function (pid) {
+        if (basePageLabel(pid).toLowerCase().indexOf(q) === 0) acts.push({ label: 'Go to ' + basePageLabel(pid), note: 'Page', run: function () { setBasePage(pid); } });
+      });
+      if (acts.length) {
+        var sec = h('div', { class: 'b-sec' }, [h('h3', { text: 'Do something' })]);
+        acts.forEach(function (a) {
+          var b = h('button', { type: 'button', class: 'b-act' }, [a.label, h('small', { text: a.note })]);
+          b.addEventListener('click', function () { closeAll(); a.run(); });
+          sec.appendChild(b);
+        });
+        listEl.appendChild(sec);
+      }
+      var found = apps.filter(function (a) { return a.label.toLowerCase().indexOf(q) >= 0; });
+      found.sort(function (x, y) { return (x.label.toLowerCase().indexOf(q) === 0 ? 0 : 1) - (y.label.toLowerCase().indexOf(q) === 0 ? 0 : 1); });
+      var g = h('div', { class: 'b-sgrid' });
+      found.slice(0, 40).forEach(function (a) { g.appendChild(appButton(a)); });
+      listEl.appendChild(h('div', { class: 'b-sec' }, [h('h3', { text: 'Apps' }), found.length ? g : h('div', { class: 'b-none', text: 'No app matches “' + q + '”' })]));
+      var web = h('button', { type: 'button', class: 'b-act' }, ['Search the web for “' + q + '”', h('small', { text: 'Chrome' })]);
+      web.addEventListener('click', function () { closeAll(); N.openUrl('https://www.google.com/search?q=' + encodeURIComponent(q)); });
+      listEl.appendChild(web);
+      return;
+    }
+
+    if (allFilter !== 'all') {
+      var plist = state.base.pages[allFilter] || [];
+      var pg = h('div', { class: 'b-sgrid' });
+      plist.forEach(function (it) {
+        var b = baseItem(plist, it, allFilter, closeAll);
+        pg.appendChild(b);
+      });
+      listEl.appendChild(h('div', { class: 'b-sec' }, [h('h3', { text: basePageLabel(allFilter) + ' — hold an app to change it' }), plist.length ? pg : h('div', { class: 'b-none', text: 'Nothing here yet.' })]));
+      return;
+    }
+
+    var groups = {};
+    apps.forEach(function (a) {
+      var c = (a.label.trim()[0] || '#').toUpperCase();
+      if (!/[A-Z]/.test(c)) c = '#';
+      (groups[c] = groups[c] || []).push(a);
+    });
+    var letters = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    letters.forEach(function (c) {
+      if (!groups[c]) return;
+      var g = h('div', { class: 'b-sgrid' });
+      groups[c].forEach(function (a) { g.appendChild(appButton(a)); });
+      listEl.appendChild(h('div', { class: 'b-sec', id: 'b-sec-' + (c === '#' ? 'num' : c) }, [h('h3', { text: c }), g]));
+    });
+    if (!apps.length) listEl.appendChild(h('div', { class: 'b-none', text: 'No apps found' }));
+    letters.forEach(function (c) { rail.appendChild(h('span', { class: groups[c] ? '' : 'off', text: c, 'data-l': c })); });
+  }
+
+  function wireBase() {
+    loadPhotos();
+    var base = $('base'), sx = 0, sy = 0, at = 0, fromStrip = false, gridMore = false;
+    base.addEventListener('touchstart', function (e) {
+      var t = e.touches[0]; sx = t.clientX; sy = t.clientY; at = Date.now();
+      fromStrip = !!(e.target.closest && (e.target.closest('#b-strip') || e.target.closest('#b-tabs')));
+      var g = $('b-grid');
+      gridMore = !!(e.target.closest && e.target.closest('#b-grid')) && g.scrollTop + g.clientHeight < g.scrollHeight - 2;
+    }, { passive: true });
+    base.addEventListener('touchend', function (e) {
+      var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Date.now() - at > 600 || sheetOpen || fromStrip) return;
+      if (dy < -70 && Math.abs(dx) < 60 && !gridMore) { openAll(false); return; }
+      if (Math.abs(dx) > 80 && Math.abs(dy) < 50) {
+        var ids = ['main'].concat(BASE_PAGES.map(function (p) { return p.id; }));
+        var i = ids.indexOf(state.base.page);
+        var next = ids[i + (dx < 0 ? 1 : -1)];
+        if (next) setBasePage(next);
+      }
+    }, { passive: true });
+    var all = $('b-all'), ay = 0, atTop = false;
+    all.addEventListener('touchstart', function (e) { ay = e.touches[0].clientY; atTop = $('b-list').scrollTop <= 0 && !(e.target.closest && e.target.closest('#b-rail')); }, { passive: true });
+    all.addEventListener('touchend', function (e) { if (atTop && e.changedTouches[0].clientY - ay > 90 && !sheetOpen) closeAll(); }, { passive: true });
+
+    function railJump(y) {
+      var rail = $('b-rail');
+      var spans = rail.querySelectorAll('span');
+      if (!spans.length) return;
+      var r = rail.getBoundingClientRect();
+      var i = Math.max(0, Math.min(spans.length - 1, Math.floor((y - r.top) / (r.height / spans.length))));
+      for (var k = i; k < spans.length; k++) {
+        var l = spans[k].getAttribute('data-l');
+        var sec = $('b-sec-' + (l === '#' ? 'num' : l));
+        if (sec) {
+          $('b-list').scrollTop = sec.offsetTop - $('b-list').offsetTop;
+          Array.prototype.forEach.call(spans, function (s) { s.classList.remove('on'); });
+          spans[k].classList.add('on');
+          return;
+        }
+      }
+    }
+    var rail = $('b-rail');
+    rail.addEventListener('touchstart', function (e) { railJump(e.touches[0].clientY); }, { passive: true });
+    rail.addEventListener('touchmove', function (e) { railJump(e.touches[0].clientY); }, { passive: true });
+    rail.addEventListener('click', function (e) { railJump(e.clientY); });
+
+    $('b-searchbtn').addEventListener('click', function () { openAll(true); });
+    $('b-q').addEventListener('input', renderAll);
+    $('b-gear').addEventListener('click', function () { openSettings(); });
+    $('b-photosapp').addEventListener('click', function () { openTarget(state.base.photos); });
+    press($('b-clock'), function () { openTarget(state.clock); }, function () { editHolder({ kind: 'clock', holder: state.clock }); });
+
+    // the first time Home Base shows, ask once for the photos (Android shows its own question)
+    if (isBase() && photoState === 'ask' && !state.photosAskedOnce && N.requestPhotoAccess) {
+      state.photosAskedOnce = true; save();
+      setTimeout(function () { N.requestPhotoAccess(); }, 800);
+    }
+  }
+
   // ------------------------------------------------------------------ live numbers from InkFlow
 
   function loadAccount() {
@@ -645,7 +1154,8 @@
   }
 
   function maybeRefreshLive(force) {
-    if (state.mode !== 'shop' || !account.signedIn || live.loading) return;
+    var wanted = isBase() ? (state.base.page === 'main' || state.base.page === 'shop') : state.mode === 'shop';
+    if (!wanted || !account.signedIn || live.loading) return;
     if (!force && Date.now() - live.at < 45000) return;
     live.loading = true;
     N.inkflowRefresh();
@@ -888,16 +1398,16 @@
 
       s.appendChild(h('h2', { text: 'Look' }));
       var looks = h('div', { class: 'row' });
-      [{ id: 'tiles', label: 'Press Sheet' }, { id: 'ticket', label: 'Job Ticket' }].forEach(function (lk) {
+      [{ id: 'base', label: 'Home Base' }, { id: 'tiles', label: 'Press Sheet' }, { id: 'ticket', label: 'Job Ticket' }].forEach(function (lk) {
         var b = opt(lk.label, function () {
           state.style = lk.id; save(); closeSheet(); closeDrawer(); render();
-          toast(lk.id === 'ticket' ? 'Job Ticket look on' : 'Press Sheet look on');
+          toast((lk.id === 'ticket' ? 'Job Ticket' : lk.id === 'base' ? 'Home Base' : 'Press Sheet') + ' look on');
         });
         b.setAttribute('aria-pressed', (state.style || 'tiles') === lk.id ? 'true' : 'false');
         looks.appendChild(b);
       });
       s.appendChild(looks);
-      s.appendChild(h('p', { text: 'Both looks use the same modes, apps and InkFlow sign-in.' }));
+      s.appendChild(h('p', { text: 'Press Sheet and Job Ticket share the same modes. Home Base keeps its own pages and folders. All three share the clock and your InkFlow sign-in.' }));
 
       s.appendChild(h('h2', { text: 'Home screen' }));
       var isHome = false;
@@ -910,7 +1420,7 @@
           s2.appendChild(h('p', { text: 'All three modes and the dock go back to how they were when you installed Press Sheet. Your InkFlow sign-in stays.' }));
           s2.appendChild(opt('Yes, start over', function () {
             var keepName = state.name, keepStyle = state.style;
-            state = defaults(); state.name = keepName; state.style = keepStyle;
+            state = defaults(); state.name = keepName; state.style = keepStyle; state.base = seedBase(state); state.baseIntroduced = true;
             matchApps(); save(); closeSheet(); render();
           }, 'danger'));
           s2.appendChild(opt('Keep my layout', function () { closeSheet(); }));
@@ -925,6 +1435,7 @@
   function closeTop() {
     if (sheetOpen) { closeSheet(); return true; }
     if (drawerIsOpen()) { closeDrawer(); return true; }
+    if (isBase() && !$('b-all').hidden) { closeAll(); return true; }
     if (isTicket() && (ticketSearchOpen || $('t-q').value)) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); return true; }
     return false;
   }
@@ -986,9 +1497,10 @@
 
   window.onNative = function (name, data) {
     if (name === 'back') { closeTop(); return; }
-    if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; if (isTicket()) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); $('t-rows').scrollTop = 0; } return; }
+    if (name === 'photos') { loadPhotos(); if (isBase()) renderStrip(); return; }
+    if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; if (isBase()) { closeAll(); if (state.base.page !== 'main') setBasePage('main'); } if (isTicket()) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); $('t-rows').scrollTop = 0; } return; }
     if (name === 'apps') { loadApps(); matchApps(); render(); if (drawerIsOpen()) renderAppList(); return; }
-    if (name === 'resume') { loadAccount(); lastClock = ''; render(); maybeRefreshLive(false); return; }
+    if (name === 'resume') { loadAccount(); loadPhotos(); lastClock = ''; render(); maybeRefreshLive(false); return; }
     if (name === 'signin') { if (signInDone) { var fn = signInDone; signInDone = null; fn(data); } return; }
     if (name === 'live') {
       live.loading = false;
@@ -998,7 +1510,7 @@
         live.error = (data && data.error) || 'Couldn’t reach InkFlow';
         if (data && data.signedOut) { live.signedOut = true; live.data = null; loadAccount(); }
       }
-      if (!sheetOpen && !drawerIsOpen()) render();
+      if (!sheetOpen && !drawerIsOpen()) { if (isBase()) renderBaseWidget(); else render(); }
     }
   };
 
@@ -1009,6 +1521,7 @@
   state = loadState();
   matchApps();
   wireGestures();
+  wireBase();
   render();
   maybeRefreshLive(true);
   setInterval(function () {
@@ -1020,6 +1533,9 @@
   // ------------------------------------------------------------------ stand-in for testing in a browser
 
   function mockBridge() {
+    var wall = document.createElement('style');
+    wall.textContent = 'html.base{background:repeating-linear-gradient(135deg,#7C8798 0,#7C8798 22px,#848FA0 22px,#848FA0 44px)!important}';
+    document.head.appendChild(wall);
     var names = ['Calculator', 'Calendar', 'Camera', 'Canva', 'Chrome', 'Claude', 'Clock', 'Depop', 'eBay', 'Family Hub', 'FretQuest', 'Immich',
       'InkStop Mail', 'Jellyfin', 'JuniCare', 'Maps', 'Mercari', 'Messages', 'Nextcloud', 'PayPal POS', 'Phone', 'Photos', 'Poshmark',
       'Starbucks', 'The Roku App', 'Whatnot', 'YouTube', 'YT Music', 'Disney Solitaire', 'High Roller Video Poker', 'Tasty Travels: Merge Game',
@@ -1042,6 +1558,16 @@
       inkflowSignIn: function () { setTimeout(function () { signedIn = true; window.onNative('signin', { ok: true }); }, 200); },
       inkflowSignOut: function () { signedIn = false; },
       setBars: function () {},
+      photoAccessState: function () { return /nophotos/.test(location.search) ? 'ask' : 'granted'; },
+      requestPhotoAccess: function () {},
+      recentPhotos: function () { return JSON.stringify(['1', '2', '3', '4', '5', '6', '7', '8']); },
+      thumbUrl: function (id) {
+        var hues = [28, 205, 95, 330, 170, 45, 260, 0];
+        return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="hsl(' + hues[+id % 8] + ',45%,62%)"/></svg>');
+      },
+      openPhoto: function (id) { window.__photo = id; return true; },
+      openCamera: function () { window.__camera = true; return true; },
+      openOwnSettings: function () {},
       inkflowRefresh: function () {
         setTimeout(function () {
           window.onNative('live', { ok: true, data: {
