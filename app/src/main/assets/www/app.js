@@ -246,6 +246,12 @@
     if (!complete) s = defaults();
     if (upgraded) { state = s; save(); }
     if (!s.base) s.base = seedBase(s);
+    if (s.base && !s.photosOnMain) {
+      var hasPhotos = s.base.main.some(function (it) { return it.t && it.t.type === 'app' && /photo|gallery/i.test((it.t.want || []).join(' ') + ' ' + (it.t.label || '')); });
+      if (!hasPhotos) s.base.main.splice(5, 0, { t: appT('Photos', ['photos', 'google photos', 'gallery'], true) });
+      s.photosOnMain = true;
+      if (s.baseIntroduced) { state = s; save(); }
+    }
     if (!s.baseIntroduced) { s.baseIntroduced = true; s.style = 'base'; state = s; save(); }
     if (!s.modes[s.mode]) s.mode = 'shop';
     return s;
@@ -738,16 +744,7 @@
 
   // ------------------------------------------------------------------ Home Base look
 
-  var photoIds = [];
-  var photoState = 'ask';
   var allFilter = 'all';
-
-  function loadPhotos() {
-    try { photoState = N.photoAccessState ? N.photoAccessState() : 'ask'; } catch (e) { photoState = 'ask'; }
-    try { photoIds = (photoState === 'granted' || photoState === 'partial') ? JSON.parse(N.recentPhotos(24) || '[]') : []; } catch (e) { photoIds = []; }
-  }
-
-  function thumbUrl(id) { return N.thumbUrl ? N.thumbUrl(id) : '/thumb/' + encodeURIComponent(id); }
 
   function basePageLabel(id) {
     if (id === 'main') return 'Main';
@@ -763,40 +760,6 @@
     save();
     renderBase();
     maybeRefreshLive(false);
-  }
-
-  function renderStrip() {
-    var strip = $('b-strip');
-    strip.textContent = '';
-    var cam = h('button', { type: 'button', class: 'cam', 'aria-label': 'Open the camera' });
-    cam.innerHTML = '<svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg><span>CAMERA</span>';
-    cam.addEventListener('click', function () {
-      if (N.openCamera && N.openCamera()) return;
-      openTarget({ t: appT('Camera') });
-    });
-    strip.appendChild(cam);
-    if (photoState === 'ask' || photoState === 'blocked') {
-      var ask = h('button', { type: 'button', class: 'ask', text: photoState === 'ask' ? 'Show my recent photos here' : 'Photos are off — tap to turn on in Settings' });
-      ask.addEventListener('click', function () {
-        if (photoState === 'ask') N.requestPhotoAccess(); else N.openOwnSettings();
-      });
-      strip.appendChild(ask);
-      return;
-    }
-    if (!photoIds.length) {
-      strip.appendChild(h('button', { type: 'button', class: 'ask', text: 'No photos yet' }));
-      return;
-    }
-    photoIds.forEach(function (id, i) {
-      var b = h('button', { type: 'button', 'aria-label': 'Photo ' + (i + 1) }, [h('img', { alt: '', loading: 'lazy', src: thumbUrl(id) })]);
-      b.addEventListener('click', function () { if (!N.openPhoto(id)) toast("Couldn't open that photo"); });
-      strip.appendChild(b);
-    });
-    if (photoState === 'partial') {
-      var more = h('button', { type: 'button', class: 'ask', text: 'Show more photos' });
-      more.addEventListener('click', function () { N.requestPhotoAccess(); });
-      strip.appendChild(more);
-    }
   }
 
   function renderBaseWidget() {
@@ -850,7 +813,6 @@
 
   function renderBase() {
     if (!state.base) { state.base = seedBase(state); save(); }
-    renderStrip();
     renderBaseWidget();
 
     var tabs = $('b-tabs');
@@ -1099,11 +1061,10 @@
   }
 
   function wireBase() {
-    loadPhotos();
     var base = $('base'), sx = 0, sy = 0, at = 0, fromStrip = false, gridMore = false;
     base.addEventListener('touchstart', function (e) {
       var t = e.touches[0]; sx = t.clientX; sy = t.clientY; at = Date.now();
-      fromStrip = !!(e.target.closest && (e.target.closest('#b-strip') || e.target.closest('#b-tabs')));
+      fromStrip = !!(e.target.closest && (e.target.closest('#b-tabs')));
       var g = $('b-grid');
       gridMore = !!(e.target.closest && e.target.closest('#b-grid')) && g.scrollTop + g.clientHeight < g.scrollHeight - 2;
     }, { passive: true });
@@ -1147,14 +1108,8 @@
     $('b-searchbtn').addEventListener('click', function () { openAll(true); });
     $('b-q').addEventListener('input', renderAll);
     $('b-gear').addEventListener('click', function () { openSettings(); });
-    $('b-photosapp').addEventListener('click', function () { openTarget(state.base.photos); });
     press($('b-clock'), function () { openTarget(state.clock); }, function () { editHolder({ kind: 'clock', holder: state.clock }); });
 
-    // the first time Home Base shows, ask once for the photos (Android shows its own question)
-    if (isBase() && photoState === 'ask' && !state.photosAskedOnce && N.requestPhotoAccess) {
-      state.photosAskedOnce = true; save();
-      setTimeout(function () { N.requestPhotoAccess(); }, 800);
-    }
   }
 
   // ------------------------------------------------------------------ live numbers from InkFlow
@@ -1525,10 +1480,9 @@
   window.onNative = function (name, data) {
     if (name === 'back') { closeTop(); return; }
     if (name === 'theme') { if (isBase()) render(); return; }
-    if (name === 'photos') { loadPhotos(); if (isBase()) renderStrip(); return; }
     if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; if (isBase()) { closeAll(); if (state.base.page !== 'main') setBasePage('main'); } if (isTicket()) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); $('t-rows').scrollTop = 0; } return; }
     if (name === 'apps') { loadApps(); matchApps(); render(); if (drawerIsOpen()) renderAppList(); return; }
-    if (name === 'resume') { loadAccount(); loadPhotos(); lastClock = ''; render(); maybeRefreshLive(false); return; }
+    if (name === 'resume') { loadAccount(); lastClock = ''; render(); maybeRefreshLive(false); return; }
     if (name === 'signin') { if (signInDone) { var fn = signInDone; signInDone = null; fn(data); } return; }
     if (name === 'live') {
       live.loading = false;
@@ -1586,16 +1540,7 @@
       inkflowSignIn: function () { setTimeout(function () { signedIn = true; window.onNative('signin', { ok: true }); }, 200); },
       inkflowSignOut: function () { signedIn = false; },
       setBars: function () {},
-      photoAccessState: function () { return /nophotos/.test(location.search) ? 'ask' : 'granted'; },
-      requestPhotoAccess: function () {},
-      recentPhotos: function () { return JSON.stringify(['1', '2', '3', '4', '5', '6', '7', '8']); },
-      thumbUrl: function (id) {
-        var hues = [28, 205, 95, 330, 170, 45, 260, 0];
-        return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="hsl(' + hues[+id % 8] + ',45%,62%)"/></svg>');
-      },
-      openPhoto: function (id) { window.__photo = id; return true; },
       openCamera: function () { window.__camera = true; return true; },
-      openOwnSettings: function () {},
       isNightMode: function () { return /night/.test(location.search); },
       inkflowRefresh: function () {
         setTimeout(function () {

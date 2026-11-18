@@ -237,8 +237,8 @@ html.base.wall, body.base.wall { background: transparent; }
   position: absolute; inset: 0; color: var(--tx); font-family: "DM Sans", system-ui, sans-serif;
   display: flex; flex-direction: column; gap: 12px; padding: 12px 18px 12px;
 }
+body.base.wall .b-head, body.base.wall #b-grid .lbl { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75); }
 body.base.wall #base { background: linear-gradient(180deg, rgba(0,0,0,.36) 0%, rgba(0,0,0,0) 26%, rgba(0,0,0,0) 62%, rgba(0,0,0,.4) 100%); }
-body.base.wall .b-head, body.base.wall .b-photos-top > span, body.base.wall #b-grid .lbl { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75); }
 
 .b-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 #b-clock { display: flex; flex-direction: column; gap: 3px; color: inherit; min-height: 44px; min-width: 0; }
@@ -253,15 +253,6 @@ body.base.wall #b-hline { color: #fff; }
 .b-inks .c { background: #4CCBF2; } .b-inks .m { background: #FF7DB5; } .b-inks .y { background: #FFD60A; } .b-inks .k { background: var(--kfold); }
 body.base:not(.dark) .b-inks .k { background: #14161C; }
 
-#b-photos { flex: none; display: flex; flex-direction: column; gap: 6px; }
-.b-photos-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; color: var(--sub); }
-#b-photosapp { height: 32px; padding: 0 14px; border-radius: 16px; background: var(--pill); color: var(--tx); font-size: 13px; font-weight: 700; }
-#b-strip { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
-#b-strip::-webkit-scrollbar { display: none; }
-#b-strip button { flex: none; width: 68px; height: 68px; border-radius: 18px; overflow: hidden; background: var(--mono); }
-#b-strip button img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#b-strip .cam { background: var(--cam); color: var(--camfg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10px; font-weight: 700; letter-spacing: .05em; }
-#b-strip .ask { width: auto; padding: 0 14px; background: var(--card); color: var(--tx); font-size: 13px; font-weight: 700; line-height: 1.25; text-align: left; }
 
 #b-widget { flex: none; }
 #b-widget:empty { display: none; }
