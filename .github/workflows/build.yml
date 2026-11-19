@@ -95,7 +95,7 @@ jobs:
             adb install -r apk/*.apk
             adb logcat -c
             adb shell am start -W -n com.theinkstop.presssheet/.MainActivity
-            sleep 20
+            sleep 35
             mkdir -p shots
             adb exec-out screencap -p > shots/1-shop.png
             adb shell input swipe 540 1700 540 700 200

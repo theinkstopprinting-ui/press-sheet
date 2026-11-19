@@ -65,6 +65,8 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final ExecutorService background = Executors.newFixedThreadPool(2);
     private boolean pageReady;
+    /** Messages that arrive before the page has loaded wait here and are sent once it has. */
+    private final List<String> waiting = new ArrayList<String>();
 
     /** Tells the page when an app is installed, removed or updated so its lists stay right. */
     private final BroadcastReceiver packageChanges = new BroadcastReceiver() {
@@ -111,6 +113,10 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 pageReady = true;
+                for (String js : waiting) {
+                    web.evaluateJavascript(js, null);
+                }
+                waiting.clear();
             }
         });
         web.loadUrl(START_URL);
@@ -169,8 +175,14 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                if (web != null && pageReady) {
-                    web.evaluateJavascript("window.onNative&&window.onNative(" + JSONObject.quote(name) + "," + json + ")", null);
+                String js = "window.onNative&&window.onNative(" + JSONObject.quote(name) + "," + json + ")";
+                if (web == null) {
+                    return;
+                }
+                if (pageReady) {
+                    web.evaluateJavascript(js, null);
+                } else if (waiting.size() < 50) {
+                    waiting.add(js);
                 }
             }
         });

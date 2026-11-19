@@ -1158,11 +1158,13 @@
     var last = state.base.wx;
     if (!force && last && last.unit === wxUnit() && last.place === wxPlace().name && Date.now() - last.at < 20 * 60000) return;
     wxBusy = true;
+    var guard = setTimeout(function () { wxBusy = false; }, 30000); // never stay stuck if an answer is lost
     var pl = wxPlace();
     wxAsk('https://api.open-meteo.com/v1/forecast?latitude=' + pl.lat + '&longitude=' + pl.lon +
       '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
       '&temperature_unit=' + (wxUnit() === 'C' ? 'celsius' : 'fahrenheit') + '&timezone=auto&forecast_days=1', function (r) {
       wxBusy = false;
+      clearTimeout(guard);
       var b = r && r.ok && r.body;
       if (!b || !b.current || !b.daily) return;
       state.base.wx = {
@@ -1295,6 +1297,7 @@
     if (!wanted || !account.signedIn || live.loading) return;
     if (!force && Date.now() - live.at < 45000) return;
     live.loading = true;
+    setTimeout(function () { live.loading = false; }, 45000);
     N.inkflowRefresh();
   }
 
