@@ -275,6 +275,7 @@
       Object.keys(state.base.pages).forEach(function (k) { state.base.pages[k].forEach(function (it) { if (it.t) fn(it.t); }); });
       state.base.dock.forEach(function (d) { if (d.t) fn(d.t); });
       if (state.base.photos && state.base.photos.t) fn(state.base.photos.t);
+      if (state.base.wxApp && state.base.wxApp.t) fn(state.base.wxApp.t);
     }
   }
 
@@ -813,6 +814,8 @@
 
   function renderBase() {
     if (!state.base) { state.base = seedBase(state); save(); }
+    renderWx();
+    if (state.base.page === 'main') wxRefresh(false);
     renderBaseWidget();
 
     var tabs = $('b-tabs');
@@ -1106,10 +1109,179 @@
     rail.addEventListener('click', function (e) { railJump(e.clientY); });
 
     $('b-searchbtn').addEventListener('click', function () { openAll(true); });
+    press($('b-wx'), function () {
+      if (!state.base.wxApp) state.base.wxApp = { t: appT('Weather', ['weather', 'weather forecast', 'accuweather', 'the weather channel'], true) };
+      matchApps();
+      openTarget(state.base.wxApp);
+    }, function () {
+      if (!state.base.wxApp) state.base.wxApp = { t: appT('Weather', ['weather'], true) };
+      openSheet(function (s) {
+        s.appendChild(h('h2', { text: 'Weather' }));
+        s.appendChild(opt('Choose the weather app', function () {
+          pickApp('Pick the app to open when you tap the weather', function (a) {
+            state.base.wxApp = { t: { type: 'app', label: a.label, want: [a.label.toLowerCase()], pkg: a.pkg, act: a.act } };
+            save();
+          });
+        }));
+        s.appendChild(opt('Refresh now', function () { closeSheet(); wxRefresh(true); }));
+        wxSettings(s);
+      });
+    });
     $('b-q').addEventListener('input', renderAll);
     $('b-gear').addEventListener('click', function () { openSettings(); });
     press($('b-clock'), function () { openTarget(state.clock); }, function () { editHolder({ kind: 'clock', holder: state.clock }); });
 
+  }
+
+  // ------------------------------------------------------------------ weather (Home Base, Main page)
+
+  var WX_DEFAULT = { name: 'Crystal Lake, IL', lat: 42.2411, lon: -88.3162 };
+  var wxBusy = false, wxCalls = {}, wxSeq = 0;
+  var STATES = { al: 'alabama', ak: 'alaska', az: 'arizona', ar: 'arkansas', ca: 'california', co: 'colorado', ct: 'connecticut', de: 'delaware',
+    fl: 'florida', ga: 'georgia', hi: 'hawaii', id: 'idaho', il: 'illinois', 'in': 'indiana', ia: 'iowa', ks: 'kansas', ky: 'kentucky', la: 'louisiana',
+    me: 'maine', md: 'maryland', ma: 'massachusetts', mi: 'michigan', mn: 'minnesota', ms: 'mississippi', mo: 'missouri', mt: 'montana', ne: 'nebraska',
+    nv: 'nevada', nh: 'new hampshire', nj: 'new jersey', nm: 'new mexico', ny: 'new york', nc: 'north carolina', nd: 'north dakota', oh: 'ohio',
+    ok: 'oklahoma', or: 'oregon', pa: 'pennsylvania', ri: 'rhode island', sc: 'south carolina', sd: 'south dakota', tn: 'tennessee', tx: 'texas',
+    ut: 'utah', vt: 'vermont', va: 'virginia', wa: 'washington', wv: 'west virginia', wi: 'wisconsin', wy: 'wyoming' };
+
+  function wxPlace() { return (state.base && state.base.wxPlace) || WX_DEFAULT; }
+  function wxUnit() { return (state.base && state.base.wxUnit) || 'F'; }
+
+  function wxAsk(address, cb) {
+    var id = 'w' + (++wxSeq);
+    wxCalls[id] = cb;
+    try { N.weatherGet(id, address); } catch (e) { delete wxCalls[id]; cb(null); }
+  }
+
+  function wxRefresh(force) {
+    if (!isBase() || !state.base || wxBusy || !N.weatherGet) return;
+    var last = state.base.wx;
+    if (!force && last && last.unit === wxUnit() && last.place === wxPlace().name && Date.now() - last.at < 20 * 60000) return;
+    wxBusy = true;
+    var pl = wxPlace();
+    wxAsk('https://api.open-meteo.com/v1/forecast?latitude=' + pl.lat + '&longitude=' + pl.lon +
+      '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+      '&temperature_unit=' + (wxUnit() === 'C' ? 'celsius' : 'fahrenheit') + '&timezone=auto&forecast_days=1', function (r) {
+      wxBusy = false;
+      var b = r && r.ok && r.body;
+      if (!b || !b.current || !b.daily) return;
+      state.base.wx = {
+        at: Date.now(), unit: wxUnit(), place: pl.name,
+        temp: b.current.temperature_2m, code: b.current.weather_code, day: b.current.is_day !== 0,
+        hi: (b.daily.temperature_2m_max || [])[0], lo: (b.daily.temperature_2m_min || [])[0],
+        rain: (b.daily.precipitation_probability_max || [])[0]
+      };
+      save();
+      renderWx();
+    });
+  }
+
+  function wxWords(code) {
+    if (code === 0) return 'Clear';
+    if (code === 1) return 'Mostly clear';
+    if (code === 2) return 'Partly cloudy';
+    if (code === 3) return 'Cloudy';
+    if (code === 45 || code === 48) return 'Fog';
+    if (code >= 51 && code <= 57) return 'Drizzle';
+    if (code === 66 || code === 67) return 'Freezing rain';
+    if ((code >= 61 && code <= 65) || (code >= 80 && code <= 82)) return code === 65 || code === 82 ? 'Heavy rain' : 'Rain';
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return code === 75 || code === 86 ? 'Heavy snow' : 'Snow';
+    if (code >= 95) return 'Storms';
+    return '';
+  }
+
+  function wxIcon(code, day) {
+    var sun = '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>';
+    var moon = '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"></path>';
+    var cloud = '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.6 4.2 4.2 0 0 0 7 18z"></path>';
+    var part = (day ? '<circle cx="8" cy="8" r="3"></circle><path d="M8 2v1.5M2 8h1.5M3.8 3.8l1 1M12.2 3.8l-1 1"></path>' : '<path d="M11 6.5A4 4 0 0 1 6 2.2 4.5 4.5 0 1 0 11 6.5z"></path>') +
+      '<path d="M9 20h8a3.5 3.5 0 0 0 .5-6.96A5 5 0 0 0 8.4 12 3.9 3.9 0 0 0 9 20z"></path>';
+    var drops = '<path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2"></path>';
+    var flakes = '<path d="M8 20h.01M12 21h.01M16 20h.01"></path>';
+    var bolt = '<path d="M13 14l-3 4h4l-3 4"></path>';
+    var body;
+    if (code === 0 || code === 1) body = day ? sun : moon;
+    else if (code === 2) body = part;
+    else if (code === 45 || code === 48) body = '<path d="M4 9h16M3 13h18M6 17h12"></path>';
+    else if (code >= 95) body = cloud.replace('18h10', '15h10').replace('7 18z', '7 15z') + bolt;
+    else if ((code >= 71 && code <= 77) || code === 85 || code === 86) body = cloud.replace('18h10', '16h10').replace('7 18z', '7 16z') + flakes;
+    else if (code >= 51) body = cloud.replace('18h10', '16h10').replace('7 18z', '7 16z') + drops;
+    else body = cloud;
+    return '<svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>';
+  }
+
+  function renderWx() {
+    var el = $('b-wx');
+    var show = isBase() && state.base && state.base.page === 'main';
+    el.hidden = !show;
+    if (!show) return;
+    var w = state.base.wx;
+    el.textContent = '';
+    if (!w || typeof w.temp !== 'number') {
+      el.appendChild(h('span', { class: 'wt' }, [h('span', { class: 'wsub', text: 'Weather loading…' })]));
+      el.setAttribute('aria-label', 'Weather');
+      return;
+    }
+    var deg = Math.round(w.temp) + '°';
+    var bits = [wxWords(w.code)];
+    if (typeof w.hi === 'number' && typeof w.lo === 'number') bits.push('H ' + Math.round(w.hi) + '° L ' + Math.round(w.lo) + '°');
+    var sub2 = typeof w.rain === 'number' && w.rain >= 30 ? w.rain + '% rain' : (w.place || '').split(',')[0];
+    var icon = h('span', { 'aria-hidden': 'true' });
+    icon.innerHTML = wxIcon(w.code, w.day);
+    el.appendChild(icon.firstChild);
+    el.appendChild(h('span', { class: 'wt' }, [h('span', { class: 'wtemp', text: deg }), h('span', { class: 'wsub', text: bits.filter(Boolean).join(' · ') }), h('span', { class: 'wsub', text: sub2 })]));
+    el.setAttribute('aria-label', 'Weather: ' + deg + ', ' + bits.join(', ') + '. Open weather app');
+    if (Date.now() - w.at > 3 * 3600000) el.querySelector('.wsub').textContent += ' · old';
+  }
+
+  /** Finds a town with Open-Meteo's place search; "Crystal Lake, IL" style names work. */
+  function wxFindPlace(text, cb) {
+    var parts = text.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!parts.length) { cb(null, 'Type a town name.'); return; }
+    var want = (parts[1] || '').toLowerCase();
+    var wantState = STATES[want] || want;
+    wxAsk('https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&format=json&name=' + encodeURIComponent(parts[0]), function (r) {
+      var list = r && r.ok && r.body && r.body.results;
+      if (!list || !list.length) { cb(null, r && r.ok ? 'No town called “' + parts[0] + '” found.' : 'Couldn’t reach the weather service.'); return; }
+      var pick = list[0];
+      if (wantState) {
+        var m = list.filter(function (x) {
+          var a = (x.admin1 || '').toLowerCase(), c = (x.country || '').toLowerCase(), cc = (x.country_code || '').toLowerCase();
+          return a.indexOf(wantState) === 0 || c.indexOf(wantState) === 0 || cc === want;
+        })[0];
+        if (m) pick = m;
+      }
+      var abbr = '';
+      Object.keys(STATES).forEach(function (k) { if (STATES[k] === (pick.admin1 || '').toLowerCase()) abbr = k.toUpperCase(); });
+      cb({ name: pick.name + (abbr ? ', ' + abbr : pick.admin1 ? ', ' + pick.admin1 : ''), lat: pick.latitude, lon: pick.longitude });
+    });
+  }
+
+  function wxSettings(s) {
+    s.appendChild(h('h2', { text: 'Weather' }));
+    var city = field('Town', wxPlace().name, 'text', 'Crystal Lake, IL');
+    var msg = h('p', { text: 'Shown on Home Base’s Main page, from Open-Meteo.' });
+    s.appendChild(city.el);
+    s.appendChild(msg);
+    var row = h('div', { class: 'row' });
+    var saveBtn = opt('Save town', function () {
+      var text = city.input.value.trim();
+      msg.className = ''; msg.textContent = 'Looking up “' + text + '”…';
+      wxFindPlace(text, function (place, err) {
+        if (!place) { msg.className = 'err'; msg.textContent = err; return; }
+        state.base.wxPlace = place; state.base.wx = null; save();
+        city.input.value = place.name;
+        msg.className = 'ok'; msg.textContent = 'Weather is now for ' + place.name + '.';
+        renderWx(); wxRefresh(true);
+      });
+    }, 'dark');
+    row.appendChild(saveBtn);
+    ['F', 'C'].forEach(function (u) {
+      var b = opt('°' + u, function () { state.base.wxUnit = u; save(); wxRefresh(true); openSettings(); });
+      b.setAttribute('aria-pressed', wxUnit() === u ? 'true' : 'false');
+      row.appendChild(b);
+    });
+    s.appendChild(row);
   }
 
   // ------------------------------------------------------------------ live numbers from InkFlow
@@ -1391,6 +1563,8 @@
       s.appendChild(walls);
       s.appendChild(h('p', { text: '\u201cSame as phone\u201d follows your phone\u2019s dark mode setting. \u201cMy wallpaper\u201d shows your phone\u2019s wallpaper behind the apps.' }));
 
+      if (state.base) wxSettings(s);
+
       s.appendChild(h('h2', { text: 'Home screen' }));
       var isHome = false;
       try { isHome = !!N.isDefaultHome(); } catch (e) { isHome = false; }
@@ -1479,6 +1653,7 @@
 
   window.onNative = function (name, data) {
     if (name === 'back') { closeTop(); return; }
+    if (name === 'wx') { var cb = data && wxCalls[data.id]; if (cb) { delete wxCalls[data.id]; cb(data); } return; }
     if (name === 'theme') { if (isBase()) render(); return; }
     if (name === 'home') { closeSheet(); closeDrawer(); $('home').scrollTop = 0; if (isBase()) { closeAll(); if (state.base.page !== 'main') setBasePage('main'); } if (isTicket()) { $('t-q').value = ''; ticketSearchOpen = false; $('t-q').blur(); render(); $('t-rows').scrollTop = 0; } return; }
     if (name === 'apps') { loadApps(); matchApps(); render(); if (drawerIsOpen()) renderAppList(); return; }
@@ -1509,6 +1684,7 @@
   setInterval(function () {
     if (document.visibilityState !== 'visible') return;
     maybeRefreshLive(false);
+    if (isBase() && state.base.page === 'main') wxRefresh(false);
   }, 30000);
   setInterval(function () { if (document.visibilityState === 'visible') tick(); }, 1000);
 
@@ -1521,7 +1697,7 @@
     var names = ['Calculator', 'Calendar', 'Camera', 'Canva', 'Chrome', 'Claude', 'Clock', 'Depop', 'eBay', 'Family Hub', 'FretQuest', 'Immich',
       'InkStop Mail', 'Jellyfin', 'JuniCare', 'Maps', 'Mercari', 'Messages', 'Nextcloud', 'PayPal POS', 'Phone', 'Photos', 'Poshmark',
       'Starbucks', 'The Roku App', 'Whatnot', 'YouTube', 'YT Music', 'Disney Solitaire', 'High Roller Video Poker', 'Tasty Travels: Merge Game',
-      'Coin Master', 'DeckTok', 'Nintendo Switch App', 'Play Store', 'PayPal', 'MoneyLion', 'Progressive', 'Aetna Health', 'CVS Flex Benefits OTC', 'AtoB', 'Murphy USA', 'Microsoft Rewards'];
+      'Coin Master', 'DeckTok', 'Nintendo Switch App', 'Play Store', 'PayPal', 'MoneyLion', 'Progressive', 'Aetna Health', 'CVS Flex Benefits OTC', 'AtoB', 'Murphy USA', 'Microsoft Rewards', 'Weather Forecast'];
     var hues = [200, 330, 48, 150, 265, 20];
     var signedIn = /signedin/.test(location.search);
     return {
@@ -1541,6 +1717,14 @@
       inkflowSignOut: function () { signedIn = false; },
       setBars: function () {},
       openCamera: function () { window.__camera = true; return true; },
+      weatherGet: function (id, url) {
+        setTimeout(function () {
+          var body = /geocoding/.test(url)
+            ? { results: [{ name: 'Springfield', admin1: 'Missouri', country_code: 'US', latitude: 37.2, longitude: -93.3 }, { name: 'Springfield', admin1: 'Illinois', country_code: 'US', latitude: 39.8, longitude: -89.6 }] }
+            : { current: { temperature_2m: /celsius/.test(url) ? 3.4 : 38.2, weather_code: /39.8/.test(url) ? 61 : 3, is_day: 1 }, daily: { temperature_2m_max: [44.6], temperature_2m_min: [29.1], precipitation_probability_max: [/39.8/.test(url) ? 70 : 10] } };
+          window.onNative('wx', { id: id, ok: true, body: body });
+        }, 80);
+      },
       isNightMode: function () { return /night/.test(location.search); },
       inkflowRefresh: function () {
         setTimeout(function () {

@@ -9,7 +9,7 @@ A home screen (launcher) for Android with a big clock and five modes you switch 
 - **Financial**: PayPal, insurance, health benefits and fuel
 
 There are three looks, picked in Settings. **Home Base** (the default from 1.0.6) shows your own
-wallpaper, a live InkFlow card, a Main page with folders,
+wallpaper, the weather (Main page, from Open-Meteo; set the town and °F/°C in Settings), a live InkFlow card, a Main page with folders,
 pages for Shop / Reselling / Home / Games / Financial, and an all-apps list with search and an A to Z
 strip. It uses the same cyan / magenta / yellow / black colors as Press Sheet, in Light, Dark or
 Same as phone, on a plain background or over your own wallpaper (Settings). The other two are **Press Sheet** (big colour tiles) and **Job Ticket**
@@ -25,7 +25,8 @@ Swipe up (or tap **All apps**) for every app with search; the gear there opens S
   browser it runs with sample apps, which is how the layout is tested.
 - `MainActivity.java` shows that page in a web view that only loads the bundled files, and is the
   bridge to the phone: the app list, icons, opening apps, the saved layout.
-- The only network use is asking your InkFlow for the Shop tiles' numbers
+- Weather comes from Open-Meteo (free, no account); only its two addresses can be reached for it.
+- The other network use is asking your InkFlow for the Shop tiles' numbers
   (`/api/mobile/login` once, then `/api/mobile/launcher`), with the same kind of 30-day sign-in
   InkStop Mail uses. The password is not kept on the phone.
 

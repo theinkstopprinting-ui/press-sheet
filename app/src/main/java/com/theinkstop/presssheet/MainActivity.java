@@ -369,6 +369,41 @@ public class MainActivity extends Activity {
             return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         }
 
+        /**
+         * Fetches weather or a city search from Open-Meteo (free, no account). Only those two
+         * addresses are allowed. The answer arrives as onNative("wx", {id, ok, body}).
+         */
+        @JavascriptInterface
+        public void weatherGet(final String id, final String address) {
+            background.execute(new Runnable() {
+                @Override
+                public void run() {
+                    JSONObject result = new JSONObject();
+                    try {
+                        result.put("id", id);
+                        Uri u = Uri.parse(address);
+                        String host = u.getHost();
+                        boolean allowed = "https".equals(u.getScheme()) && host != null
+                                && (host.equals("api.open-meteo.com") || host.equals("geocoding-api.open-meteo.com"));
+                        if (!allowed) {
+                            result.put("ok", false);
+                        } else {
+                            String[] res = http("GET", address, null, null);
+                            result.put("ok", "200".equals(res[0]));
+                            result.put("body", parse(res[1]));
+                        }
+                    } catch (Exception e) {
+                        try {
+                            result.put("ok", false);
+                        } catch (Exception ignored) {
+                            // result stays as it is
+                        }
+                    }
+                    tellPage("wx", result.toString());
+                }
+            });
+        }
+
         /** The phone's camera, ready for a still photo. */
         @JavascriptInterface
         public boolean openCamera() {
