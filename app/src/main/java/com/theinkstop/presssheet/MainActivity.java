@@ -77,7 +77,8 @@ public class MainActivity extends Activity {
 
     private SharedPreferences prefs;
     private Store store;
-    private final ExecutorService bg = Executors.newFixedThreadPool(3);
+    /** Shared by every copy of the screen and never shut down, so late work can't hit a closed pool. */
+    private static final ExecutorService bg = Executors.newFixedThreadPool(3);
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private boolean appsReady;
@@ -175,7 +176,7 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             // not registered
         }
-        bg.shutdownNow();
+        ui.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -245,6 +246,9 @@ public class MainActivity extends Activity {
         bg.execute(() -> {
             List<Store.App> list = store.queryApps();
             ui.post(() -> {
+                if (gone()) {
+                    return;
+                }
                 store.setApps(list);
                 store.forgetIcons();
                 if (!appsReady) {
@@ -402,7 +406,7 @@ public class MainActivity extends Activity {
         bg.execute(() -> {
             Bitmap loaded = store.loadIcon(a);
             ui.post(() -> {
-                if (a.key.equals(iv.getTag()) && loaded != null) {
+                if (!gone() && a.key.equals(iv.getTag()) && loaded != null) {
                     iv.setImageBitmap(loaded);
                 }
             });
@@ -443,7 +447,14 @@ public class MainActivity extends Activity {
 
     // ================================================================== build the screen
 
+    private boolean gone() {
+        return isFinishing() || isDestroyed();
+    }
+
     private void build() {
+        if (gone()) {
+            return;
+        }
         palette();
         root.removeAllViews();
         bedScroll = null;
@@ -1243,7 +1254,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderDrawer() {
-        if (drawer == null) {
+        if (drawer == null || gone()) {
             return;
         }
         String q = search.getText().toString().trim();

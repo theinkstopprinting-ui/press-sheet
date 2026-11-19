@@ -95,14 +95,20 @@ jobs:
             adb install -r apk/*.apk
             adb logcat -c
             mkdir -p shots
+            # make Press Sheet the home screen, as on the phone
+            adb shell cmd package set-home-activity com.theinkstop.presssheet/.MainActivity || true
+            adb shell am force-stop com.google.android.apps.nexuslauncher || true
+            adb shell input keyevent KEYCODE_HOME
+            sleep 4
             adb shell am start -W -n com.theinkstop.presssheet/.MainActivity --es look bed --es theme light
             sleep 30
             adb exec-out screencap -p > shots/1-press-bed.png
             adb shell am start -n com.theinkstop.presssheet/.MainActivity --es open drawer
             sleep 5
             adb exec-out screencap -p > shots/2-drawer.png
-            adb shell input keyevent KEYCODE_BACK
-            sleep 2
+            adb shell input keyevent KEYCODE_HOME
+            sleep 3
+            adb exec-out screencap -p > shots/2b-after-home.png
             adb shell am start -n com.theinkstop.presssheet/.MainActivity --es look glance
             sleep 8
             adb exec-out screencap -p > shots/3-glance.png
