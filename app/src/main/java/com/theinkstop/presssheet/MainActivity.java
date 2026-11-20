@@ -196,8 +196,13 @@ public class MainActivity extends Activity {
             ui.postDelayed(this::openFirstFolder, 300);
             return;
         }
+        if (intent != null && "edit".equals(intent.getStringExtra("open"))) {
+            ui.postDelayed(() -> setEditing(true), 300);
+            return;
+        }
         closeFolder();
         closeDrawer();
+        setEditing(false);
         if (pager != null) {
             int p = intent != null && intent.hasExtra("page") ? intent.getIntExtra("page", 0) : store.homePage;
             ui.postDelayed(() -> pager.goTo(p, true), 120);
@@ -208,6 +213,8 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (folderLayer != null && folderLayer.getVisibility() == View.VISIBLE) {
             closeFolder();
+        } else if (editing) {
+            setEditing(false);
         } else {
             closeDrawer();
         }
@@ -398,17 +405,59 @@ public class MainActivity extends Activity {
 
     // ================================================================== the frame: pages, dots, dock, drawer, folder layer
 
+    /** Press colors: cyan, magenta, yellow, key (black). */
+    private static final int[] PRESS = {0xFF00AEEF, 0xFFEC008C, 0xFFFFE600, 0xFF14161C};
+    private static final String[] PRESS_NAMES = {"Cyan", "Magenta", "Yellow", "Black", "No color"};
+
+    private Typeface display, strong;
+    private boolean editing;
+    private LinearLayout editBar;
+    private TextView editPill;
+    private Store.Item dragging;
+
+    private void loadFonts() {
+        if (display != null) {
+            return;
+        }
+        try {
+            display = Typeface.createFromAsset(getAssets(), "fonts/BricolageGrotesque_800ExtraBold.ttf");
+            strong = Typeface.createFromAsset(getAssets(), "fonts/DMSans_700Bold.ttf");
+        } catch (Exception e) {
+            display = Typeface.DEFAULT_BOLD;
+            strong = Typeface.DEFAULT_BOLD;
+        }
+    }
+
     private void buildFrame() {
         if (gone()) {
             return;
         }
         palette();
+        loadFonts();
         root.removeAllViews();
         int keep = pager == null ? -1 : pager.page;
 
         LinearLayout home = new LinearLayout(this);
         home.setOrientation(LinearLayout.VERTICAL);
         home.setFitsSystemWindows(true);
+
+        editBar = new LinearLayout(this);
+        editBar.setGravity(Gravity.CENTER_VERTICAL);
+        editBar.setBackground(round(0xE614161C, 20));
+        editBar.setPadding(dp(16), dp(8), dp(8), dp(8));
+        TextView et = tv("Customizing · press and hold an icon, then drag it", 13, true, Color.WHITE);
+        et.setTypeface(strong);
+        editBar.addView(et, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView done = tv("Done", 15, true, K);
+        done.setTypeface(strong);
+        done.setBackground(round(PRESS[2], 16));
+        done.setPadding(dp(18), dp(10), dp(18), dp(10));
+        done.setOnClickListener(v -> setEditing(false));
+        editBar.addView(done);
+        editBar.setVisibility(editing ? View.VISIBLE : View.GONE);
+        LinearLayout.LayoutParams ebl = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ebl.setMargins(dp(SIDE), dp(6), dp(SIDE), dp(2));
+        home.addView(editBar, ebl);
 
         pager = new Pager(this);
         if (keep >= 0) {
@@ -418,10 +467,22 @@ public class MainActivity extends Activity {
         pager.addView(pagesRow, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         home.addView(pager, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        FrameLayout dotsRow = new FrameLayout(this);
         dots = new LinearLayout(this);
         dots.setGravity(Gravity.CENTER);
-        dots.setPadding(0, dp(6), 0, dp(8));
-        home.addView(dots, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dots.setPadding(0, dp(8), 0, dp(8));
+        dotsRow.addView(dots, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        editPill = tv("✎ Edit", 12, true, Color.WHITE);
+        editPill.setTypeface(strong);
+        editPill.setBackground(round(0x66000000, 14));
+        editPill.setPadding(dp(12), dp(6), dp(12), dp(6));
+        editPill.setContentDescription("Customize the home screen");
+        editPill.setOnClickListener(v -> setEditing(!editing));
+        FrameLayout.LayoutParams epl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.END | Gravity.CENTER_VERTICAL);
+        epl.rightMargin = dp(14);
+        dotsRow.addView(editPill, epl);
+        home.addView(dotsRow, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         dockRow = new LinearLayout(this);
         dockRow.setPadding(dp(6), 0, dp(6), dp(8));
@@ -441,6 +502,22 @@ public class MainActivity extends Activity {
 
         homeBars();
         renderAll();
+    }
+
+    private void setEditing(boolean on) {
+        if (editing == on) {
+            return;
+        }
+        editing = on;
+        dragging = null;
+        if (editBar != null) {
+            editBar.setVisibility(on ? View.VISIBLE : View.GONE);
+        }
+        if (editPill != null) {
+            editPill.setText(on ? "Done" : "✎ Edit");
+        }
+        store.trimPages();
+        renderPages();
     }
 
     private void renderAll() {
@@ -466,6 +543,9 @@ public class MainActivity extends Activity {
         int pageW = pager.getWidth();
         int pageH = pager.getHeight();
         if (pageW == 0 || pageH == 0) {
+            if (pager != null) {
+                pager.post(this::renderAll);
+            }
             return;
         }
         cellW = (pageW - dp(SIDE * 2) - dp(12)) / Math.max(1, store.cols);
@@ -474,7 +554,7 @@ public class MainActivity extends Activity {
         pagesRow.removeAllViews();
         pageScrolls.clear();
         cards.clear();
-        int count = Math.max(1, store.pages);
+        int count = Math.max(1, store.pages) + (editing ? 1 : 0);   // a spare blank page while customizing
         for (int p = 0; p < count; p++) {
             pagesRow.addView(buildPage(p), new LinearLayout.LayoutParams(pageW, pageH));
         }
@@ -494,23 +574,28 @@ public class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(SIDE), dp(10), dp(SIDE), dp(10));
         col.setOnLongClickListener(v -> {
-            pageMenu(p);
+            if (editing) {
+                pageMenu(p);
+            } else {
+                setEditing(true);
+            }
             return true;
         });
         sv.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         List<Store.Section> list = store.onPage(p);
         for (Store.Section s : list) {
-            View v = s.card ? cardView(s) : sectionView(s);
-            if (v == null) {
-                continue;
-            }
+            View v = s.clock ? clockView(s) : s.card ? cardView(s) : sectionView(s);
             LinearLayout.LayoutParams l = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             l.bottomMargin = dp(10);
             col.addView(v, l);
         }
-        if (list.isEmpty()) {
-            TextView hint = tv("Empty page\nPress and hold here to add a section", 14, true, Color.WHITE);
+        if (editing) {
+            col.addView(newSectionDrop(p));
+            col.addView(pageTools(p));
+        } else if (list.isEmpty()) {
+            TextView hint = tv("Empty page\nTap Edit to add a section", 14, true, Color.WHITE);
+            hint.setTypeface(strong);
             shadow(hint);
             hint.setGravity(Gravity.CENTER);
             hint.setLineSpacing(dp(4), 1f);
@@ -525,7 +610,88 @@ public class MainActivity extends Activity {
         return Math.max(dp(30), Math.min(Math.round(cellW * 0.74f), dp(56)));
     }
 
-    /** One labeled group: a heading, then its icons 8 (or your setting) across. */
+    private GradientDrawable panel() {
+        return round(0x66000000, 22);
+    }
+
+    /** A small press-style color swatch. */
+    private View swatch(int colorIndex, int sizeDp) {
+        View v = new View(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(3));
+        if (colorIndex >= 0 && colorIndex < 4) {
+            g.setColor(PRESS[colorIndex]);
+            if (colorIndex == 3) {
+                g.setStroke(dp(1.5f), 0xCCFFFFFF);
+            }
+        } else {
+            g.setColor(Color.TRANSPARENT);
+            g.setStroke(dp(1.5f), 0xAAFFFFFF, dp(3), dp(2));
+        }
+        v.setBackground(g);
+        v.setLayoutParams(lp(dp(sizeDp), dp(sizeDp)));
+        return v;
+    }
+
+    /** A small round button used on the panels while customizing. */
+    private TextView chipButton(String label, View.OnClickListener click) {
+        TextView b = tv(label, 12, true, Color.WHITE);
+        b.setTypeface(strong);
+        b.setGravity(Gravity.CENTER);
+        b.setBackground(round(0x33FFFFFF, 12));
+        b.setPadding(dp(10), dp(7), dp(10), dp(7));
+        b.setOnClickListener(click);
+        LinearLayout.LayoutParams l = lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        l.leftMargin = dp(5);
+        b.setLayoutParams(l);
+        return b;
+    }
+
+    /** The row of buttons on top of each panel while customizing. */
+    private View editRow(Store.Section s) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(6), dp(4), dp(2), dp(6));
+        if (!s.special()) {
+            View sw = swatch(s.color, 22);
+            sw.setContentDescription("Section color");
+            sw.setOnClickListener(v -> {
+                s.color = s.color >= 3 ? -1 : s.color + 1;
+                saveAndRender();
+            });
+            r.addView(sw);
+            TextView name = tv(s.name.isEmpty() ? "No heading ✎" : s.name.toUpperCase(Locale.US) + " ✎", 13, true, Color.WHITE);
+            name.setTypeface(display);
+            name.setLetterSpacing(0.06f);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            name.setPadding(dp(10), 0, dp(4), 0);
+            name.setOnClickListener(v -> askText("Section heading", s.name, t -> {
+                s.name = t;
+                saveAndRender();
+            }));
+            r.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            r.addView(chipButton("+ Apps", v -> sectionApps(s)));
+        } else {
+            TextView name = tv(sectionName(s).toUpperCase(Locale.US), 13, true, Color.WHITE);
+            name.setTypeface(display);
+            name.setLetterSpacing(0.06f);
+            name.setPadding(dp(4), 0, dp(4), 0);
+            r.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        r.addView(chipButton("▲", v -> {
+            store.shift(s, -1);
+            renderPages();
+        }));
+        r.addView(chipButton("▼", v -> {
+            store.shift(s, 1);
+            renderPages();
+        }));
+        r.addView(chipButton("⋯", v -> sectionMenu(s)));
+        return r;
+    }
+
+    /** One labeled group: a heading with its press color, then its icons 8 (or your setting) across. */
     private View sectionView(Store.Section s) {
         List<Store.Item> shown = new ArrayList<>();
         for (Store.Item it : s.items) {
@@ -535,25 +701,45 @@ public class MainActivity extends Activity {
         }
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackground(round(0x66000000, 22));
-        box.setPadding(dp(6), s.name.isEmpty() ? dp(8) : dp(4), dp(6), dp(6));
-        View.OnLongClickListener hold = v -> {
-            sectionMenu(s);
+        box.setBackground(panel());
+        box.setPadding(dp(6), s.name.isEmpty() && !editing ? dp(8) : dp(6), dp(6), dp(6));
+        box.setOnLongClickListener(v -> {
+            if (editing) {
+                sectionMenu(s);
+            } else {
+                setEditing(true);
+            }
             return true;
-        };
-        box.setOnLongClickListener(hold);
+        });
+        box.setOnDragListener((v, e) -> dropOnSection(v, e, s, -1));
 
-        if (!s.name.isEmpty()) {
-            TextView h = tv(s.name.toUpperCase(Locale.US), 12, true, Color.WHITE);
-            h.setLetterSpacing(0.08f);
-            h.setPadding(dp(8), dp(6), dp(8), dp(6));
-            h.setOnLongClickListener(hold);
-            h.setOnClickListener(v -> sectionMenu(s));
-            box.addView(h, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (editing) {
+            box.addView(editRow(s));
+        } else if (!s.name.isEmpty()) {
+            LinearLayout head = new LinearLayout(this);
+            head.setGravity(Gravity.CENTER_VERTICAL);
+            head.setPadding(dp(8), dp(6), dp(8), dp(6));
+            if (s.color >= 0) {
+                View sw = swatch(s.color, 11);
+                LinearLayout.LayoutParams sl = lp(dp(11), dp(11));
+                sl.rightMargin = dp(9);
+                head.addView(sw, sl);
+            }
+            TextView h = tv(s.name.toUpperCase(Locale.US), 13, true, Color.WHITE);
+            h.setTypeface(display);
+            h.setLetterSpacing(0.07f);
+            head.addView(h, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            head.addView(regMark(14, 0x88FFFFFF));
+            head.setOnClickListener(v -> sectionMenu(s));
+            head.setOnLongClickListener(v -> {
+                setEditing(true);
+                return true;
+            });
+            box.addView(head, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         if (shown.isEmpty()) {
-            TextView e = tv("No apps yet — tap the heading to add some", 12, false, 0xDDFFFFFF);
-            e.setPadding(dp(8), dp(4), dp(8), dp(8));
+            TextView e = tv(editing ? "Drag apps here, or tap + Apps" : "No apps yet — tap the heading to add some", 12, false, 0xDDFFFFFF);
+            e.setPadding(dp(8), dp(10), dp(8), dp(12));
             e.setOnClickListener(v -> sectionApps(s));
             box.addView(e);
             return box;
@@ -568,6 +754,8 @@ public class MainActivity extends Activity {
             }
             Store.Item it = shown.get(i);
             View cell = "folder".equals(it.type) ? folderView(it) : appView(it, store.app(it.key));
+            final int at = s.items.indexOf(it);
+            cell.setOnDragListener((v, e) -> dropOnSection(v, e, s, at));
             row.addView(cell, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         }
         int fill = (store.cols - shown.size() % store.cols) % store.cols;
@@ -576,6 +764,202 @@ public class MainActivity extends Activity {
         }
         return box;
     }
+
+    /** A registration mark (the circle-and-cross from a press sheet). */
+    private View regMark(int sizeDp, int color) {
+        View v = new View(this) {
+            private final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+            @Override
+            protected void onDraw(android.graphics.Canvas c) {
+                float w = getWidth(), h = getHeight(), r = Math.min(w, h) * 0.32f;
+                pt.setColor(color);
+                pt.setStyle(android.graphics.Paint.Style.STROKE);
+                pt.setStrokeWidth(Math.max(1.5f, w / 12f));
+                c.drawCircle(w / 2, h / 2, r, pt);
+                c.drawLine(w / 2, 0, w / 2, h, pt);
+                c.drawLine(0, h / 2, w, h / 2, pt);
+            }
+        };
+        v.setLayoutParams(lp(dp(sizeDp), dp(sizeDp)));
+        return v;
+    }
+
+    /** The cyan-magenta-yellow-black bar printed along the edge of every press sheet. */
+    private View colorBar(int squareDp) {
+        LinearLayout bar = new LinearLayout(this);
+        for (int i = 0; i < 4; i++) {
+            View sq = swatch(i, squareDp);
+            LinearLayout.LayoutParams l = lp(dp(squareDp), dp(squareDp));
+            if (i > 0) {
+                l.leftMargin = dp(3);
+            }
+            bar.addView(sq, l);
+        }
+        return bar;
+    }
+
+    // ---------------------------------------------------------------- dragging icons while customizing
+
+    private boolean dropOnSection(View v, android.view.DragEvent e, Store.Section s, int at) {
+        switch (e.getAction()) {
+            case android.view.DragEvent.ACTION_DRAG_STARTED:
+                return editing && dragging != null;
+            case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                if (at >= 0) {
+                    v.setAlpha(0.45f);
+                }
+                return true;
+            case android.view.DragEvent.ACTION_DRAG_EXITED:
+            case android.view.DragEvent.ACTION_DRAG_ENDED:
+                v.setAlpha(1f);
+                return true;
+            case android.view.DragEvent.ACTION_DROP:
+                v.setAlpha(1f);
+                Store.Item it = dragging;
+                dragging = null;
+                if (it == null) {
+                    return false;
+                }
+                Store.Section from = store.sectionOf(it);
+                int target = at;
+                if (from == s && target >= 0) {
+                    int was = s.items.indexOf(it);
+                    if (was == target) {
+                        return true;
+                    }
+                    if (was < target) {
+                        target--;
+                    }
+                }
+                if (from != null) {
+                    from.items.remove(it);
+                }
+                if (target < 0 || target > s.items.size()) {
+                    s.items.add(it);
+                } else {
+                    s.items.add(target, it);
+                }
+                store.save();
+                ui.post(this::renderPages);
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    /** "Drop here for a new section" box at the bottom of each page while customizing. */
+    private View newSectionDrop(int p) {
+        TextView t = tv("+ Drop an app here to start a new section\nor tap to add an empty one", 13, true, Color.WHITE);
+        t.setTypeface(strong);
+        t.setGravity(Gravity.CENTER);
+        t.setLineSpacing(dp(3), 1f);
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(22));
+        g.setColor(0x33000000);
+        g.setStroke(dp(2), 0xBBFFFFFF, dp(8), dp(6));
+        t.setBackground(g);
+        t.setPadding(dp(12), dp(18), dp(12), dp(18));
+        t.setOnClickListener(v -> addSection(p, null));
+        t.setOnDragListener((v, e) -> {
+            switch (e.getAction()) {
+                case android.view.DragEvent.ACTION_DRAG_STARTED:
+                    return editing && dragging != null;
+                case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                    v.setAlpha(0.6f);
+                    return true;
+                case android.view.DragEvent.ACTION_DRAG_EXITED:
+                case android.view.DragEvent.ACTION_DRAG_ENDED:
+                    v.setAlpha(1f);
+                    return true;
+                case android.view.DragEvent.ACTION_DROP:
+                    Store.Item it = dragging;
+                    dragging = null;
+                    if (it != null) {
+                        ui.post(() -> addSection(p, it));
+                    }
+                    return true;
+                default:
+                    return true;
+            }
+        });
+        LinearLayout.LayoutParams l = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        l.bottomMargin = dp(10);
+        t.setLayoutParams(l);
+        return t;
+    }
+
+    private void addSection(int p, Store.Item first) {
+        askText("New section name", "", t -> {
+            Store.Section ns = new Store.Section();
+            ns.name = t;
+            ns.page = p;
+            ns.color = store.sections.size() % 4;
+            if (first != null) {
+                Store.Section from = store.sectionOf(first);
+                if (from != null) {
+                    from.items.remove(first);
+                }
+                ns.items.add(first);
+            }
+            store.sections.add(ns);
+            store.pages = Math.max(store.pages, p + 1);
+            saveAndRender();
+            if (first == null) {
+                sectionApps(ns);
+            }
+        });
+    }
+
+    /** Buttons at the bottom of a page while customizing. */
+    private View pageTools(int p) {
+        boolean hasCard = false, hasClock = false;
+        for (Store.Section s : store.sections) {
+            hasCard |= s.card;
+            hasClock |= s.clock;
+        }
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout r1 = new LinearLayout(this);
+        r1.setGravity(Gravity.CENTER);
+        if (!hasClock) {
+            r1.addView(chipButton("+ Clock", v -> addSpecial(p, true)));
+        }
+        if (!hasCard) {
+            r1.addView(chipButton("+ Weather card", v -> addSpecial(p, false)));
+        }
+        r1.addView(chipButton(p == store.homePage ? "★ Home page" : "Make home page", v -> {
+            store.homePage = p;
+            saveAndRender();
+        }));
+        r1.addView(chipButton("Settings", v -> openSettings()));
+        wrap.addView(r1);
+        TextView n = tv(p >= store.pages ? "A spare page — drop apps here to use it" : "Page " + (p + 1), 12, false, 0xCCFFFFFF);
+        n.setPadding(0, dp(10), 0, 0);
+        shadow(n);
+        wrap.addView(n);
+        return wrap;
+    }
+
+    private void addSpecial(int p, boolean clock) {
+        Store.Section c = new Store.Section();
+        c.clock = clock;
+        c.card = !clock;
+        c.page = p;
+        int at = store.sections.size();
+        for (int i = 0; i < store.sections.size(); i++) {
+            if (store.sections.get(i).page == p) {
+                at = clock ? i : i + 1;
+                break;
+            }
+        }
+        store.sections.add(Math.min(at, store.sections.size()), c);
+        store.pages = Math.max(store.pages, p + 1);
+        saveAndRender();
+    }
+
+    // ---------------------------------------------------------------- icons
 
     private LinearLayout cellBox(View iconView, String label) {
         LinearLayout box = new LinearLayout(this);
@@ -595,6 +979,44 @@ public class MainActivity extends Activity {
         return box;
     }
 
+    /** While customizing, an icon gets a small remove badge and can be dragged. */
+    private View editable(View cellView, Store.Item it) {
+        if (!editing) {
+            return cellView;
+        }
+        FrameLayout f = new FrameLayout(this);
+        f.addView(cellView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView x = tv("−", 15, true, Color.WHITE);
+        x.setGravity(Gravity.CENTER);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(PRESS[1]);
+        g.setStroke(dp(1.5f), Color.WHITE);
+        x.setBackground(g);
+        x.setContentDescription("Remove " + itemName(it));
+        x.setOnClickListener(v -> {
+            Store.Section s = store.sectionOf(it);
+            if (s != null) {
+                s.items.remove(it);
+                saveAndRender();
+            }
+        });
+        FrameLayout.LayoutParams xl = new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.TOP | Gravity.END);
+        f.addView(x, xl);
+        f.setOnLongClickListener(v -> startDrag(cellView, it));
+        cellView.setOnLongClickListener(v -> startDrag(cellView, it));
+        cellView.setOnClickListener(v -> itemMenu(it));
+        return f;
+    }
+
+    private boolean startDrag(View v, Store.Item it) {
+        dragging = it;
+        v.startDragAndDrop(android.content.ClipData.newPlainText("app", itemName(it)), new View.DragShadowBuilder(v), it,
+                View.DRAG_FLAG_OPAQUE);
+        v.setAlpha(0.3f);
+        return true;
+    }
+
     private View appView(Store.Item it, Store.App a) {
         ImageView iv = new ImageView(this);
         bindIcon(iv, a);
@@ -604,7 +1026,7 @@ public class MainActivity extends Activity {
             itemMenu(it);
             return true;
         });
-        return box;
+        return editable(box, it);
     }
 
     private View folderIcon(Store.Item it, int size) {
@@ -648,20 +1070,117 @@ public class MainActivity extends Activity {
             itemMenu(it);
             return true;
         });
+        return editable(box, it);
+    }
+
+    // ---------------------------------------------------------------- the clock
+
+    private View clockView(Store.Section s) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(panel());
+        box.setPadding(dp(18), dp(10), dp(16), dp(14));
+        if (editing) {
+            box.addView(editRow(s));
+        }
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        android.widget.TextClock time = new android.widget.TextClock(this);
+        time.setFormat12Hour("h:mm");
+        time.setFormat24Hour("H:mm");
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 58);
+        time.setTypeface(display);
+        time.setTextColor(Color.WHITE);
+        time.setIncludeFontPadding(false);
+        time.setLetterSpacing(-0.02f);
+        time.setOnClickListener(v -> openClockApp());
+        left.addView(time);
+        android.widget.TextClock date = new android.widget.TextClock(this);
+        date.setFormat12Hour("EEEE · MMM d");
+        date.setFormat24Hour("EEEE · MMM d");
+        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        date.setTypeface(strong);
+        date.setAllCaps(true);
+        date.setLetterSpacing(0.1f);
+        date.setTextColor(0xFFE6E8EE);
+        date.setPadding(dp(2), dp(4), 0, 0);
+        date.setOnClickListener(v -> openCalendarApp());
+        left.addView(date);
+        row.addView(left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(LinearLayout.VERTICAL);
+        right.setGravity(Gravity.END);
+        right.addView(regMark(26, 0xCCFFFFFF));
+        View bar = colorBar(12);
+        LinearLayout.LayoutParams bl = lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bl.topMargin = dp(12);
+        right.addView(bar, bl);
+        row.addView(right);
+        box.addView(row);
+
+        box.setOnClickListener(v -> openClockApp());
+        box.setOnLongClickListener(v -> {
+            if (editing) {
+                sectionMenu(s);
+            } else {
+                setEditing(true);
+            }
+            return true;
+        });
         return box;
+    }
+
+    private void openClockApp() {
+        if (editing) {
+            return;
+        }
+        Store.App a = store.match("clock", "samsung clock");
+        if (a != null) {
+            launch(a, null);
+            return;
+        }
+        try {
+            Intent i = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception ignored) {
+            // no clock app
+        }
+    }
+
+    private void openCalendarApp() {
+        if (editing) {
+            return;
+        }
+        Store.App a = store.match("calendar", "samsung calendar", "google calendar");
+        if (a != null) {
+            launch(a, null);
+        }
     }
 
     // ---------------------------------------------------------------- the weather + InkFlow card
 
     private View cardView(Store.Section s) {
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setBackground(panel());
+        if (editing) {
+            outer.setPadding(dp(6), dp(6), dp(6), 0);
+            outer.addView(editRow(s));
+        }
         LinearLayout box = new LinearLayout(this);
         box.setGravity(Gravity.CENTER_VERTICAL);
-        box.setBackground(round(0x80000000, 22));
         box.setPadding(dp(16), dp(10), dp(16), dp(10));
+        outer.addView(box, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ImageView wi = icon(R.drawable.wx_cloud, 34, Color.WHITE);
         box.addView(wi);
-        TextView wt = tv("--°", 30, true, Color.WHITE);
+        TextView wt = tv("--°", 32, true, Color.WHITE);
+        wt.setTypeface(display);
         wt.setPadding(dp(10), 0, dp(12), 0);
         box.addView(wt);
 
@@ -672,16 +1191,20 @@ public class MainActivity extends Activity {
         ww.setEllipsize(TextUtils.TruncateAt.END);
         lines.addView(ww);
         TextView ink = tv("", 13f, true, Color.WHITE);
+        ink.setTypeface(strong);
         ink.setSingleLine(true);
         ink.setEllipsize(TextUtils.TruncateAt.END);
         ink.setPadding(0, dp(6), 0, 0);
         GradientDrawable dot = new GradientDrawable();
-        dot.setShape(GradientDrawable.OVAL);
-        dot.setSize(dp(8), dp(8));
-        dot.setColor(Y);
+        dot.setCornerRadius(dp(2));
+        dot.setSize(dp(9), dp(9));
+        dot.setColor(PRESS[1]);
         ink.setCompoundDrawablesWithIntrinsicBounds(dot, null, null, null);
-        ink.setCompoundDrawablePadding(dp(6));
+        ink.setCompoundDrawablePadding(dp(7));
         ink.setOnClickListener(v -> {
+            if (editing) {
+                return;
+            }
             if (signedIn()) {
                 openInkFlow("/dashboard");
             } else {
@@ -691,9 +1214,17 @@ public class MainActivity extends Activity {
         lines.addView(ink, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         box.addView(lines, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        box.setOnClickListener(v -> openWeatherApp());
+        box.setOnClickListener(v -> {
+            if (!editing) {
+                openWeatherApp();
+            }
+        });
         View.OnLongClickListener hold = v -> {
-            sectionMenu(s);
+            if (editing) {
+                sectionMenu(s);
+            } else {
+                setEditing(true);
+            }
             return true;
         };
         box.setOnLongClickListener(hold);
@@ -702,7 +1233,7 @@ public class MainActivity extends Activity {
         box.setTag(new Object[]{wi, wt, ww, ink});
         cards.add(box);
         fillCard(box);
-        return box;
+        return outer;
     }
 
     private String deg(double v) {
@@ -752,6 +1283,7 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- dots + dock
 
+    /** Page dots in press colors: the current page is a bigger square. */
     private void renderDots(int current) {
         if (dots == null || pager == null) {
             return;
@@ -761,12 +1293,18 @@ public class MainActivity extends Activity {
         for (int i = 0; i < count; i++) {
             View d = new View(this);
             GradientDrawable g = new GradientDrawable();
-            g.setShape(GradientDrawable.OVAL);
-            g.setColor(i == current ? Color.WHITE : 0x80FFFFFF);
+            boolean on = i == current;
+            g.setCornerRadius(dp(on ? 2 : 4));
+            g.setColor(on ? PRESS[i % 3] : 0x99FFFFFF);
+            if (on) {
+                g.setStroke(dp(1), Color.WHITE);
+            }
             d.setBackground(g);
-            LinearLayout.LayoutParams l = lp(dp(7), dp(7));
-            l.leftMargin = dp(4);
-            l.rightMargin = dp(4);
+            int size = on ? 10 : 7;
+            LinearLayout.LayoutParams l = lp(dp(size), dp(size));
+            l.leftMargin = dp(5);
+            l.rightMargin = dp(5);
+            l.gravity = Gravity.CENTER_VERTICAL;
             final int target = i;
             d.setOnClickListener(v -> pager.goTo(target, true));
             dots.addView(d, l);
@@ -1035,6 +1573,9 @@ public class MainActivity extends Activity {
         if (s.card) {
             return "Weather & InkFlow card";
         }
+        if (s.clock) {
+            return "Clock";
+        }
         return s.name.isEmpty() ? "Everyday apps" : s.name;
     }
 
@@ -1131,7 +1672,7 @@ public class MainActivity extends Activity {
         List<Store.Section> list = new ArrayList<>();
         List<String> names = new ArrayList<>();
         for (Store.Section x : store.sections) {
-            if (x != skip && !x.card) {
+            if (x != skip && !x.special()) {
                 list.add(x);
                 names.add(sectionName(x) + "  ·  page " + (x.page + 1));
             }
@@ -1189,21 +1730,34 @@ public class MainActivity extends Activity {
     /** Press and hold (or tap) a section's heading, or press and hold the weather card. */
     private void sectionMenu(Store.Section s) {
         List<String> opts = new ArrayList<>();
-        if (!s.card) {
+        if (!editing) {
+            opts.add("Customize the home screen");
+        }
+        if (!s.special()) {
             opts.add("Add or remove apps");
             opts.add("Add a folder");
             opts.add(s.name.isEmpty() ? "Give it a heading" : "Rename");
+            opts.add("Color…");
         }
         opts.add("Move up");
         opts.add("Move down");
         opts.add("Move to another page…");
-        if (!s.card) {
+        if (!s.special()) {
             opts.add("Add a new section below");
         }
-        opts.add(s.card ? "Hide the card" : "Remove section");
+        opts.add(s.clock ? "Hide the clock" : s.card ? "Hide the card" : "Remove section");
         dialog().setTitle(sectionName(s)).setItems(opts.toArray(new String[0]), (d, w) -> {
             String o = opts.get(w);
             switch (o) {
+                case "Customize the home screen":
+                    setEditing(true);
+                    break;
+                case "Color…":
+                    dialog().setTitle("Color for " + sectionName(s)).setItems(PRESS_NAMES, (d2, c) -> {
+                        s.color = c >= 4 ? -1 : c;
+                        saveAndRender();
+                    }).show();
+                    break;
                 case "Add or remove apps":
                     sectionApps(s);
                     break;
@@ -1256,9 +1810,10 @@ public class MainActivity extends Activity {
                     });
                     break;
                 case "Hide the card":
+                case "Hide the clock":
                     store.sections.remove(s);
                     saveAndRender();
-                    Toast.makeText(this, "Bring it back by pressing and holding an empty part of a page", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Bring it back with Edit at the bottom of the screen", Toast.LENGTH_LONG).show();
                     break;
                 default:
                     dialog().setTitle("Remove " + sectionName(s) + "?")
@@ -1324,55 +1879,34 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Press and hold an empty part of a page. */
+    /** Press and hold an empty part of a page while customizing. */
     private void pageMenu(int p) {
-        boolean hasCard = false;
+        boolean hasCard = false, hasClock = false;
         for (Store.Section s : store.sections) {
-            if (s.card) {
-                hasCard = true;
-            }
+            hasCard |= s.card;
+            hasClock |= s.clock;
         }
         List<String> opts = new ArrayList<>();
         opts.add("Add a section");
+        if (!hasClock) {
+            opts.add("Show the clock here");
+        }
         if (!hasCard) {
             opts.add("Show the weather & InkFlow card here");
         }
-        opts.add("Add a new page");
         opts.add("Make this my home page");
         opts.add("Settings");
         dialog().setTitle("Page " + (p + 1)).setItems(opts.toArray(new String[0]), (d, w) -> {
             String o = opts.get(w);
             if (o.startsWith("Add a section")) {
-                askText("Section name", "", t -> {
-                    Store.Section ns = new Store.Section();
-                    ns.name = t;
-                    ns.page = p;
-                    store.sections.add(ns);
-                    saveAndRender();
-                    sectionApps(ns);
-                });
+                addSection(p, null);
+            } else if (o.startsWith("Show the clock")) {
+                addSpecial(p, true);
             } else if (o.startsWith("Show the weather")) {
-                Store.Section c = new Store.Section();
-                c.card = true;
-                c.page = p;
-                int first = store.sections.size();
-                for (int i = 0; i < store.sections.size(); i++) {
-                    if (store.sections.get(i).page == p) {
-                        first = i;
-                        break;
-                    }
-                }
-                store.sections.add(first, c);
-                saveAndRender();
-            } else if (o.startsWith("Add a new page")) {
-                store.pages++;
-                store.save();
-                startPage = store.pages - 1;
-                renderPages();
-                Toast.makeText(this, "Press and hold the new page to add a section", Toast.LENGTH_LONG).show();
+                addSpecial(p, false);
             } else if (o.startsWith("Make this")) {
                 store.homePage = p;
-                store.save();
+                saveAndRender();
                 Toast.makeText(this, "Home goes to page " + (p + 1) + " now", Toast.LENGTH_SHORT).show();
             } else {
                 openSettings();
@@ -2165,7 +2699,14 @@ public class MainActivity extends Activity {
         }
 
         col.addView(header("Home screen"));
-        col.addView(note("Tap a section heading to add apps, rename it or move it. Press and hold an icon to move it to another section, put it in a folder or remove it. Press and hold an empty part of a page to add a section or a page. Swipe up for every app; swipe down for notifications."));
+        col.addView(row(button("Customize the home screen", true, v -> {
+            if (holder[0] != null) {
+                holder[0].dismiss();
+            }
+            closeDrawer();
+            setEditing(true);
+        })));
+        col.addView(note("Tap Edit (bottom right) to customize right on the screen: drag icons between sections, tap a section\u2019s color square to change it, rename it, move it up or down, and add sections, the clock or the weather card. Swipe up for every app; swipe down for notifications."));
         col.addView(row(button(isDefaultHome() ? "Default home app (Press Sheet is on)" : "Make Press Sheet my home screen", false, v -> {
             try {
                 Intent i = new Intent(Settings.ACTION_HOME_SETTINGS);
@@ -2307,13 +2848,57 @@ public class MainActivity extends Activity {
             return folderLayer != null && folderLayer.getVisibility() == View.VISIBLE;
         }
 
+        private long edgeSince;
+        private int edgeDir;
+
+        /** While dragging an icon: hold it at the left or right edge to change pages, or near the top or bottom to scroll. */
+        @Override
+        public boolean dispatchDragEvent(android.view.DragEvent e) {
+            int a = e.getAction();
+            if (a == android.view.DragEvent.ACTION_DRAG_LOCATION && pager != null) {
+                float x = e.getX(), y = e.getY();
+                int w = getWidth(), edge = dp(28);
+                int dir = x < edge ? -1 : x > w - edge ? 1 : 0;
+                long now = android.os.SystemClock.uptimeMillis();
+                if (dir == 0) {
+                    edgeDir = 0;
+                } else if (dir != edgeDir) {
+                    edgeDir = dir;
+                    edgeSince = now;
+                } else if (now - edgeSince > 650) {
+                    edgeSince = now;
+                    pager.goTo(pager.page + dir, true);
+                }
+                ScrollView sv = pager.page < pageScrolls.size() ? pageScrolls.get(pager.page) : null;
+                if (sv != null) {
+                    int[] loc = new int[2];
+                    int[] me = new int[2];
+                    sv.getLocationOnScreen(loc);
+                    getLocationOnScreen(me);
+                    float top = loc[1] - me[1], bottom = top + sv.getHeight();
+                    if (y < top + dp(60)) {
+                        sv.scrollBy(0, -dp(14));
+                    } else if (y > bottom - dp(60)) {
+                        sv.scrollBy(0, dp(14));
+                    }
+                }
+            } else if (a == android.view.DragEvent.ACTION_DRAG_ENDED) {
+                edgeDir = 0;
+                if (!e.getResult()) {
+                    dragging = null;
+                    ui.post(MainActivity.this::renderPages);
+                }
+            }
+            return super.dispatchDragEvent(e);
+        }
+
         @Override
         public boolean onInterceptTouchEvent(MotionEvent e) {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     downX = e.getX();
                     downY = e.getY();
-                    tracking = !folderOpen();
+                    tracking = !folderOpen() && !editing;
                     claimed = false;
                     return false;
                 case MotionEvent.ACTION_MOVE:

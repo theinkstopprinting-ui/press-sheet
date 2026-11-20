@@ -86,11 +86,17 @@ final class Store {
         String name = "";
         int page;
         boolean card;
+        boolean clock;
+        int color = -1;   // 0 cyan, 1 magenta, 2 yellow, 3 black (key), -1 none
         final List<Item> items = new ArrayList<>();
+
+        boolean special() {
+            return card || clock;
+        }
 
         JSONObject toJson() throws Exception {
             JSONObject o = new JSONObject();
-            o.put("name", name).put("page", page).put("card", card);
+            o.put("name", name).put("page", page).put("card", card).put("clock", clock).put("color", color);
             JSONArray a = new JSONArray();
             for (Item i : items) {
                 a.put(i.toJson());
@@ -104,6 +110,8 @@ final class Store {
             s.name = o.optString("name", "");
             s.page = o.optInt("page");
             s.card = o.optBoolean("card");
+            s.clock = o.optBoolean("clock");
+            s.color = o.optInt("color", -1);
             JSONArray a = o.optJSONArray("items");
             for (int i = 0; a != null && i < a.length(); i++) {
                 JSONObject j = a.optJSONObject(i);
@@ -267,6 +275,7 @@ final class Store {
                 while (dock.size() < 5) {
                     dock.add("");
                 }
+                upgrade();
                 return;
             } catch (Exception ignored) {
                 sections.clear();
@@ -275,6 +284,40 @@ final class Store {
             }
         }
         fillDefaults();
+        upgrade();
+        save();
+    }
+
+    /** Adds the press-style extras to a layout saved by an older version: the clock and section colors. */
+    private void upgrade() {
+        if (prefs.getBoolean("press_v1", false)) {
+            return;
+        }
+        boolean hasClock = false;
+        for (Section s : sections) {
+            hasClock |= s.clock;
+        }
+        if (!hasClock) {
+            Section c = new Section();
+            c.clock = true;
+            c.page = homePage;
+            int at = 0;
+            for (int i = 0; i < sections.size(); i++) {
+                if (sections.get(i).page == homePage) {
+                    at = i;
+                    break;
+                }
+            }
+            sections.add(at, c);
+        }
+        int next = 0;
+        for (Section s : sections) {
+            if (!s.special() && s.color < 0) {
+                s.color = next % 4;
+                next++;
+            }
+        }
+        prefs.edit().putBoolean("press_v1", true).apply();
         save();
     }
 
@@ -296,7 +339,7 @@ final class Store {
     }
 
     void reset() {
-        prefs.edit().remove("home4").apply();
+        prefs.edit().remove("home4").remove("press_v1").apply();
         load();
     }
 
