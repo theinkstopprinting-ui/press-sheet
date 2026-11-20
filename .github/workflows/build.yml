@@ -100,22 +100,33 @@ jobs:
             adb shell am force-stop com.google.android.apps.nexuslauncher || true
             adb shell input keyevent KEYCODE_HOME
             sleep 4
-            adb shell am start -W -n com.theinkstop.presssheet/.MainActivity --es look bed --es theme light
+            adb shell am start -W -n com.theinkstop.presssheet/.MainActivity --es theme light
             sleep 30
-            adb exec-out screencap -p > shots/1-press-bed.png
+            adb exec-out screencap -p > shots/1-home-page1.png
+            adb shell am start -n com.theinkstop.presssheet/.MainActivity --ei page 1
+            sleep 5
+            adb exec-out screencap -p > shots/2-home-page2.png
+            adb shell am start -n com.theinkstop.presssheet/.MainActivity --es open folder
+            sleep 4
+            adb exec-out screencap -p > shots/3-folder.png
+            adb shell input keyevent KEYCODE_BACK
+            sleep 2
             adb shell am start -n com.theinkstop.presssheet/.MainActivity --es open drawer
             sleep 5
-            adb exec-out screencap -p > shots/2-drawer.png
+            adb exec-out screencap -p > shots/4-drawer.png
             adb shell input keyevent KEYCODE_HOME
             sleep 3
-            adb exec-out screencap -p > shots/2b-after-home.png
-            adb shell am start -n com.theinkstop.presssheet/.MainActivity --es look glance
-            sleep 8
-            adb exec-out screencap -p > shots/3-glance.png
-            adb shell am start -n com.theinkstop.presssheet/.MainActivity --es look bed --es theme dark
-            sleep 6
-            adb exec-out screencap -p > shots/4-press-bed-dark.png
+            adb exec-out screencap -p > shots/5-after-home.png
+            # swipe left to the next page, like a finger would
+            adb shell input swipe 900 1200 150 1200 250
+            sleep 2
+            adb exec-out screencap -p > shots/6-after-swipe.png
+            adb shell am start -n com.theinkstop.presssheet/.MainActivity --es theme dark --es open drawer
+            sleep 5
+            adb exec-out screencap -p > shots/7-drawer-dark.png
+            adb shell input keyevent KEYCODE_HOME
             adb shell am start -n com.theinkstop.presssheet/.MainActivity --es theme phone
+            sleep 2
             adb logcat -d -v brief | grep -E "AndroidRuntime|FATAL|presssheet|PressSheet" | tail -120 > shots/app-log.txt || true
             echo "----- app log -----"; cat shots/app-log.txt
             adb shell pidof com.theinkstop.presssheet
