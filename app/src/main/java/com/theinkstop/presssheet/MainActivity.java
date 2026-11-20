@@ -2175,6 +2175,16 @@ public class MainActivity extends Activity {
             renderDots(page);
         }
 
+        /** The phone's bars can change the space after the first layout: redraw the pages to fit. */
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (oldw != 0 && oldh != 0 && (w != oldw || h != oldh)) {
+                startPage = page;
+                post(MainActivity.this::renderAll);
+            }
+        }
+
         @Override
         public void fling(int velocityX) {
             // no free scrolling: pages snap in onTouchEvent
