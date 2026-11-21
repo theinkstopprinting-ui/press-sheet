@@ -139,7 +139,7 @@ public class MainActivity extends Activity {
         }
         applyTestExtras(getIntent());
         if (getIntent() != null && getIntent().hasExtra("page")) {
-            startPage = getIntent().getIntExtra("page", 0);
+            startLogical = getIntent().getIntExtra("page", 0);
         }
         root = new SwipeRoot(this);
         setContentView(root);
@@ -197,6 +197,10 @@ public class MainActivity extends Activity {
             ui.postDelayed(this::openFirstFolder, 300);
             return;
         }
+        if (intent != null && "forecast".equals(intent.getStringExtra("open"))) {
+            ui.postDelayed(this::openForecast, 300);
+            return;
+        }
         if (intent != null && "edit".equals(intent.getStringExtra("open"))) {
             ui.postDelayed(() -> setEditing(true), 300);
             return;
@@ -206,7 +210,7 @@ public class MainActivity extends Activity {
         setEditing(false);
         if (pager != null) {
             int p = intent != null && intent.hasExtra("page") ? intent.getIntExtra("page", 0) : store.homePage;
-            ui.postDelayed(() -> pager.goTo(p, true), 120);
+            ui.postDelayed(() -> pager.goTo(firstPhysical(p), true), 120);
         }
     }
 
@@ -256,8 +260,8 @@ public class MainActivity extends Activity {
                 if (!appsReady) {
                     store.load();
                     appsReady = true;
-                    if (startPage < 0) {
-                        startPage = store.homePage;
+                    if (startLogical < 0 && startPage < 0) {
+                        startLogical = store.homePage;
                     }
                 }
                 renderAll();
@@ -276,7 +280,7 @@ public class MainActivity extends Activity {
     private void openFirstFolder() {
         for (int pass = 0; pass < 2; pass++) {
             for (Store.Section s : store.sections) {
-                if (pass == 0 && s.page != pager.page) {
+                if (pass == 0 && s.page != logicalOf(pager.page)) {
                     continue;
                 }
                 for (Store.Item it : s.items) {
@@ -540,6 +544,32 @@ public class MainActivity extends Activity {
 
     private static final int SIDE = 8;   // dp of space at the page edges
 
+    private final List<Integer> physToLogical = new ArrayList<>();
+    private int startLogical = -1;
+
+    /** Which of your pages (as set up in Edit) a screen page belongs to. */
+    private int logicalOf(int phys) {
+        return phys >= 0 && phys < physToLogical.size() ? physToLogical.get(phys) : 0;
+    }
+
+    /** The first screen page showing one of your pages. */
+    private int firstPhysical(int logical) {
+        int best = 0;
+        for (int i = 0; i < physToLogical.size(); i++) {
+            if (physToLogical.get(i) == logical) {
+                return i;
+            }
+            if (physToLogical.get(i) < logical) {
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Lays out the pages. Pages never scroll up and down (so swiping up always opens your apps):
+     * sections that don't fit on a screen flow onto the next one, the way Samsung adds a page.
+     */
     private void renderPages() {
         int pageW = pager.getWidth();
         int pageH = pager.getHeight();
@@ -550,23 +580,72 @@ public class MainActivity extends Activity {
             return;
         }
         cellW = (pageW - dp(SIDE * 2) - dp(12)) / Math.max(1, store.cols);
-        int keep = startPage >= 0 ? startPage : pager.page;
+        int keepPhys = startPage >= 0 ? startPage : pager.page;
+        int keepLogical = startLogical;
         startPage = -1;
+        startLogical = -1;
         pagesRow.removeAllViews();
         pageScrolls.clear();
         cards.clear();
+        physToLogical.clear();
+
+        int avail = pageH - dp(20);
+        int wSpec = View.MeasureSpec.makeMeasureSpec(pageW - dp(SIDE * 2), View.MeasureSpec.EXACTLY);
+        int hSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
         int count = Math.max(1, store.pages) + (editing ? 1 : 0);   // a spare blank page while customizing
         for (int p = 0; p < count; p++) {
-            pagesRow.addView(buildPage(p), new LinearLayout.LayoutParams(pageW, pageH));
+            List<View> views = new ArrayList<>();
+            for (Store.Section s : store.onPage(p)) {
+                views.add(s.clock ? clockView(s) : s.card ? cardView(s) : sectionView(s));
+            }
+            List<View> tail = new ArrayList<>();
+            if (editing) {
+                tail.add(newSectionDrop(p));
+                tail.add(pageTools(p));
+            } else if (views.isEmpty()) {
+                TextView hint = tv("Empty page\nTap Edit to add a section", 14, true, Color.WHITE);
+                hint.setTypeface(strong);
+                shadow(hint);
+                hint.setGravity(Gravity.CENTER);
+                hint.setLineSpacing(dp(4), 1f);
+                hint.setPadding(0, dp(120), 0, 0);
+                tail.add(hint);
+            }
+            List<View> cur = new ArrayList<>();
+            int used = 0;
+            for (View v : views) {
+                v.measure(wSpec, hSpec);
+                int h = v.getMeasuredHeight() + dp(10);
+                if (!cur.isEmpty() && used + h > avail) {
+                    addScreenPage(p, cur, pageW, pageH);
+                    cur = new ArrayList<>();
+                    used = 0;
+                }
+                cur.add(v);
+                used += h;
+            }
+            int tailH = 0;
+            for (View v : tail) {
+                v.measure(wSpec, hSpec);
+                tailH += v.getMeasuredHeight() + dp(10);
+            }
+            if (!cur.isEmpty() && !tail.isEmpty() && used + tailH > avail) {
+                addScreenPage(p, cur, pageW, pageH);
+                cur = new ArrayList<>();
+            }
+            cur.addAll(tail);
+            addScreenPage(p, cur, pageW, pageH);
         }
-        pager.pageCount = count;
-        final int target = Math.max(0, Math.min(keep, count - 1));
-        pager.page = target;
-        renderDots(target);
-        pager.post(() -> pager.goTo(target, false));
+        int total = physToLogical.size();
+        pager.pageCount = total;
+        int target = keepLogical >= 0 ? firstPhysical(keepLogical) : keepPhys;
+        final int t2 = Math.max(0, Math.min(target, total - 1));
+        pager.page = t2;
+        renderDots(t2);
+        pager.post(() -> pager.goTo(t2, false));
     }
 
-    private View buildPage(int p) {
+    private void addScreenPage(int p, List<View> views, int pageW, int pageH) {
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
         sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -583,28 +662,18 @@ public class MainActivity extends Activity {
             return true;
         });
         sv.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        List<Store.Section> list = store.onPage(p);
-        for (Store.Section s : list) {
-            View v = s.clock ? clockView(s) : s.card ? cardView(s) : sectionView(s);
-            LinearLayout.LayoutParams l = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            l.bottomMargin = dp(10);
-            col.addView(v, l);
-        }
-        if (editing) {
-            col.addView(newSectionDrop(p));
-            col.addView(pageTools(p));
-        } else if (list.isEmpty()) {
-            TextView hint = tv("Empty page\nTap Edit to add a section", 14, true, Color.WHITE);
-            hint.setTypeface(strong);
-            shadow(hint);
-            hint.setGravity(Gravity.CENTER);
-            hint.setLineSpacing(dp(4), 1f);
-            hint.setPadding(0, dp(120), 0, 0);
-            col.addView(hint, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        for (View v : views) {
+            if (v.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                col.addView(v);
+            } else {
+                LinearLayout.LayoutParams l = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                l.bottomMargin = dp(10);
+                col.addView(v, l);
+            }
         }
         pageScrolls.add(sv);
-        return sv;
+        physToLogical.add(p);
+        pagesRow.addView(sv, new LinearLayout.LayoutParams(pageW, pageH));
     }
 
     private int iconSize() {
@@ -1217,7 +1286,7 @@ public class MainActivity extends Activity {
 
         box.setOnClickListener(v -> {
             if (!editing) {
-                openWeatherApp();
+                openForecast();
             }
         });
         View.OnLongClickListener hold = v -> {
@@ -1399,16 +1468,291 @@ public class MainActivity extends Activity {
         openUrl(inkUrl() + path);
     }
 
-    private void openWeatherApp() {
-        Store.App a = store.app(prefs.getString("wx_app", ""));
-        if (a == null) {
-            a = store.match("weather", "the weather channel", "accuweather", "weather forecast");
+    // ---------------------------------------------------------------- the forecast pop-up (tap the weather)
+
+    private boolean forecastOpen;
+
+    private String hourLabel(String isoTime) {
+        try {
+            int h = Integer.parseInt(isoTime.substring(11, 13));
+            if (android.text.format.DateFormat.is24HourFormat(this)) {
+                return h + ":00";
+            }
+            return (h % 12 == 0 ? 12 : h % 12) + (h < 12 ? " AM" : " PM");
+        } catch (Exception e) {
+            return "";
         }
-        if (a != null) {
-            launch(a, null);
+    }
+
+    private String dayLabel(String isoDate, int index) {
+        if (index == 0) {
+            return "Today";
+        }
+        try {
+            return java.time.LocalDate.parse(isoDate.substring(0, 10)).getDayOfWeek()
+                    .getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String clockLabel(String isoTime) {
+        try {
+            int h = Integer.parseInt(isoTime.substring(11, 13));
+            String m = isoTime.substring(14, 16);
+            if (android.text.format.DateFormat.is24HourFormat(this)) {
+                return h + ":" + m;
+            }
+            return (h % 12 == 0 ? 12 : h % 12) + ":" + m + (h < 12 ? " AM" : " PM");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private TextView forecastHeading(String text, int colorIndex) {
+        TextView h = tv(text, 12, true, Color.WHITE);
+        h.setTypeface(display);
+        h.setLetterSpacing(0.08f);
+        GradientDrawable sq = new GradientDrawable();
+        sq.setCornerRadius(dp(2));
+        sq.setSize(dp(10), dp(10));
+        sq.setColor(PRESS[colorIndex]);
+        h.setCompoundDrawablesWithIntrinsicBounds(sq, null, null, null);
+        h.setCompoundDrawablePadding(dp(8));
+        h.setPadding(0, dp(18), 0, dp(10));
+        return h;
+    }
+
+    private void openForecast() {
+        if (editing) {
+            return;
+        }
+        loadFonts();
+        Weather.Now w = weather;
+        boolean needData = w == null || w.days.length() == 0;
+        if (needData || System.currentTimeMillis() - w.at > 10 * 60 * 1000L) {
+            refreshWeather(true);
+        }
+        folderLayer.removeAllViews();
+        forecastOpen = true;
+
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackground(round(0xF514161C, 28));
+        panel.setPadding(dp(20), dp(18), dp(20), dp(16));
+        panel.setClickable(true);
+        sv.addView(panel);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView place = tv(Weather.place(prefs).name.toUpperCase(Locale.US), 13, true, Color.WHITE);
+        place.setTypeface(display);
+        place.setLetterSpacing(0.08f);
+        top.addView(place, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(regMark(20, 0xAAFFFFFF));
+        panel.addView(top);
+
+        if (w == null || Double.isNaN(w.temp)) {
+            TextView loading = tv("Getting the forecast…", 16, true, 0xFFE6E8EE);
+            loading.setTypeface(strong);
+            loading.setPadding(0, dp(30), 0, dp(30));
+            panel.addView(loading);
         } else {
-            Weather.Place pl = Weather.place(prefs);
-            openUrl(String.format(Locale.US, "https://forecast.weather.gov/MapClick.php?lat=%.4f&lon=%.4f", pl.lat, pl.lon));
+            LinearLayout big = new LinearLayout(this);
+            big.setGravity(Gravity.CENTER_VERTICAL);
+            big.setPadding(0, dp(12), 0, 0);
+            big.addView(icon(Weather.icon(w.words, w.day), 54, Color.WHITE));
+            TextView t = tv(deg(w.temp), 64, true, Color.WHITE);
+            t.setTypeface(display);
+            t.setPadding(dp(12), 0, dp(14), 0);
+            big.addView(t);
+            LinearLayout side = new LinearLayout(this);
+            side.setOrientation(LinearLayout.VERTICAL);
+            TextView words = tv(w.words, 17, true, Color.WHITE);
+            words.setTypeface(strong);
+            side.addView(words);
+            TextView hl = tv((Double.isNaN(w.hi) ? "" : "High " + deg(w.hi)) + (Double.isNaN(w.lo) ? "" : " · Low " + deg(w.lo)),
+                    14, false, 0xFFC9CDD6);
+            hl.setPadding(0, dp(4), 0, 0);
+            side.addView(hl);
+            big.addView(side, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            panel.addView(big);
+
+            LinearLayout stats = new LinearLayout(this);
+            stats.setPadding(0, dp(14), 0, 0);
+            String[][] st = {
+                    {"Feels", deg(w.feels)},
+                    {"Humidity", Double.isNaN(w.humidity) ? "--" : Math.round(w.humidity) + "%"},
+                    {"Wind", Double.isNaN(w.wind) ? "--" : Math.round(w.wind) + " " + w.windUnit},
+                    {"Rain", w.rain < 0 ? "--" : w.rain + "%"}};
+            for (int i = 0; i < st.length; i++) {
+                LinearLayout c = new LinearLayout(this);
+                c.setOrientation(LinearLayout.VERTICAL);
+                c.setGravity(Gravity.CENTER_HORIZONTAL);
+                c.setBackground(round(0x1FFFFFFF, 14));
+                c.setPadding(dp(4), dp(8), dp(4), dp(8));
+                TextView a = tv(st[i][0].toUpperCase(Locale.US), 10, true, 0xFFA7ADBA);
+                a.setLetterSpacing(0.08f);
+                c.addView(a);
+                TextView b = tv(st[i][1], 15, true, Color.WHITE);
+                b.setTypeface(strong);
+                b.setPadding(0, dp(4), 0, 0);
+                c.addView(b);
+                LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (i > 0) {
+                    l.leftMargin = dp(6);
+                }
+                stats.addView(c, l);
+            }
+            panel.addView(stats);
+
+            // next 24 hours
+            if (w.hours.length() > 0) {
+                panel.addView(forecastHeading("NEXT 24 HOURS", 0));
+                android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+                hs.setHorizontalScrollBarEnabled(false);
+                LinearLayout hr = new LinearLayout(this);
+                hs.addView(hr);
+                for (int i = 0; i < w.hours.length(); i++) {
+                    JSONObject h = w.hours.optJSONObject(i);
+                    if (h == null) {
+                        continue;
+                    }
+                    LinearLayout c = new LinearLayout(this);
+                    c.setOrientation(LinearLayout.VERTICAL);
+                    c.setGravity(Gravity.CENTER_HORIZONTAL);
+                    c.setPadding(dp(2), 0, dp(2), 0);
+                    TextView lt = tv(i == 0 ? "Now" : hourLabel(h.optString("t")), 12, true, 0xFFC9CDD6);
+                    c.addView(lt);
+                    ImageView ic = icon(Weather.icon(h.optString("words"), h.optBoolean("day", true)), 26, Color.WHITE);
+                    LinearLayout.LayoutParams il = lp(dp(26), dp(26));
+                    il.topMargin = dp(8);
+                    c.addView(ic, il);
+                    TextView tt = tv(deg(h.optDouble("temp", Double.NaN)), 16, true, Color.WHITE);
+                    tt.setTypeface(strong);
+                    tt.setPadding(0, dp(8), 0, 0);
+                    c.addView(tt);
+                    int pop = h.optInt("pop", -1);
+                    TextView pt = tv(pop >= 10 ? pop + "%" : " ", 11, true, PRESS[0]);
+                    pt.setPadding(0, dp(4), 0, 0);
+                    c.addView(pt);
+                    hr.addView(c, lp(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT));
+                }
+                panel.addView(hs);
+            }
+
+            // next 7 days
+            if (w.days.length() > 0) {
+                panel.addView(forecastHeading("7 DAYS", 1));
+                double wkLo = Double.MAX_VALUE, wkHi = -Double.MAX_VALUE;
+                for (int i = 0; i < w.days.length(); i++) {
+                    JSONObject d = w.days.optJSONObject(i);
+                    if (d != null) {
+                        wkLo = Math.min(wkLo, d.optDouble("lo", wkLo));
+                        wkHi = Math.max(wkHi, d.optDouble("hi", wkHi));
+                    }
+                }
+                double span = Math.max(1, wkHi - wkLo);
+                for (int i = 0; i < w.days.length(); i++) {
+                    JSONObject d = w.days.optJSONObject(i);
+                    if (d == null) {
+                        continue;
+                    }
+                    LinearLayout r = new LinearLayout(this);
+                    r.setGravity(Gravity.CENTER_VERTICAL);
+                    r.setPadding(0, dp(7), 0, dp(7));
+                    TextView dn = tv(dayLabel(d.optString("d"), i), 15, true, Color.WHITE);
+                    dn.setTypeface(strong);
+                    r.addView(dn, lp(dp(62), ViewGroup.LayoutParams.WRAP_CONTENT));
+                    r.addView(icon(Weather.icon(d.optString("words"), true), 24, Color.WHITE));
+                    int pop = d.optInt("pop", -1);
+                    TextView pp = tv(pop >= 10 ? pop + "%" : "", 12, true, PRESS[0]);
+                    pp.setGravity(Gravity.CENTER);
+                    r.addView(pp, lp(dp(44), ViewGroup.LayoutParams.WRAP_CONTENT));
+                    double lo = d.optDouble("lo", Double.NaN), hi = d.optDouble("hi", Double.NaN);
+                    TextView lt = tv(deg(lo), 14, false, 0xFFA7ADBA);
+                    lt.setGravity(Gravity.END);
+                    r.addView(lt, lp(dp(40), ViewGroup.LayoutParams.WRAP_CONTENT));
+                    // the day's range on a bar covering the whole week
+                    FrameLayout track = new FrameLayout(this);
+                    track.setBackground(round(0x26FFFFFF, 3));
+                    View fill = new View(this);
+                    GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{PRESS[0], PRESS[1], PRESS[2]});
+                    g.setCornerRadius(dp(3));
+                    fill.setBackground(g);
+                    track.addView(fill);
+                    final double fLo = Double.isNaN(lo) ? wkLo : lo, fHi = Double.isNaN(hi) ? wkHi : hi;
+                    final double base = wkLo;
+                    track.addOnLayoutChangeListener((v, l1, t1, r1, b1, l0, t0, r0, b0) -> {
+                        int tw = r1 - l1;
+                        int x0 = (int) (tw * (fLo - base) / span), x1 = (int) (tw * (fHi - base) / span);
+                        FrameLayout.LayoutParams fl = (FrameLayout.LayoutParams) fill.getLayoutParams();
+                        if (fl.leftMargin != x0 || fl.width != Math.max(dp(6), x1 - x0)) {
+                            fl.leftMargin = x0;
+                            fl.width = Math.max(dp(6), x1 - x0);
+                            fl.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                            fill.post(() -> fill.setLayoutParams(fl));
+                        }
+                    });
+                    LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, dp(6), 1f);
+                    tl.leftMargin = dp(10);
+                    tl.rightMargin = dp(10);
+                    r.addView(track, tl);
+                    TextView ht = tv(deg(hi), 14, true, Color.WHITE);
+                    r.addView(ht, lp(dp(36), ViewGroup.LayoutParams.WRAP_CONTENT));
+                    panel.addView(r);
+                }
+                JSONObject d0 = w.days.optJSONObject(0);
+                if (d0 != null && !d0.optString("rise").isEmpty()) {
+                    TextView sun = tv("Sunrise " + clockLabel(d0.optString("rise")) + "  ·  Sunset " + clockLabel(d0.optString("set")),
+                            13, false, 0xFFC9CDD6);
+                    sun.setPadding(0, dp(12), 0, 0);
+                    panel.addView(sun);
+                }
+            }
+            TextView src = tv("Open-Meteo · updated " + android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(w.at)),
+                    11, false, 0xFF7D8391);
+            src.setPadding(0, dp(10), 0, 0);
+            panel.addView(src);
+        }
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setPadding(0, dp(16), 0, 0);
+        TextView town = tv("Change town", 14, true, Color.WHITE);
+        town.setTypeface(strong);
+        town.setGravity(Gravity.CENTER);
+        town.setBackground(round(0x26FFFFFF, 14));
+        town.setPadding(0, dp(12), 0, dp(12));
+        town.setOnClickListener(v -> {
+            closeFolder();
+            openSettings();
+        });
+        btns.addView(town, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView close = tv("Close", 14, true, K);
+        close.setTypeface(strong);
+        close.setGravity(Gravity.CENTER);
+        close.setBackground(round(PRESS[2], 14));
+        close.setPadding(0, dp(12), 0, dp(12));
+        close.setOnClickListener(v -> closeFolder());
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cl.leftMargin = dp(8);
+        btns.addView(close, cl);
+        panel.addView(btns);
+
+        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        plp.leftMargin = dp(14);
+        plp.rightMargin = dp(14);
+        plp.topMargin = dp(40);
+        plp.bottomMargin = dp(40);
+        folderLayer.addView(sv, plp);
+        if (folderLayer.getVisibility() != View.VISIBLE) {
+            folderLayer.animate().cancel();
+            folderLayer.setVisibility(View.VISIBLE);
+            folderLayer.setAlpha(0f);
+            folderLayer.animate().alpha(1f).setDuration(140).start();
         }
     }
 
@@ -1455,6 +1799,9 @@ public class MainActivity extends Activity {
                 }
                 if (!gone()) {
                     refreshCards();
+                    if (forecastOpen && n != null && folderLayer.getVisibility() == View.VISIBLE) {
+                        openForecast();
+                    }
                 }
             });
         });
@@ -1686,7 +2033,7 @@ public class MainActivity extends Activity {
                 askText("New section name", "", t -> {
                     Store.Section ns = new Store.Section();
                     ns.name = t;
-                    ns.page = pager.page;
+                    ns.page = logicalOf(pager.page);
                     store.sections.add(ns);
                     cb.picked(ns);
                 });
@@ -1796,7 +2143,7 @@ public class MainActivity extends Activity {
                     dialog().setTitle("Move " + sectionName(s) + " to").setItems(pg, (d2, p) -> {
                         store.movePage(s, p);
                         store.trimPages();
-                        startPage = s.page;
+                        startLogical = s.page;
                         renderPages();
                     }).show();
                     break;
@@ -1938,6 +2285,7 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- folders
 
     private void openFolder(Store.Item f) {
+        forecastOpen = false;
         palette();
         folderLayer.removeAllViews();
         LinearLayout panel = new LinearLayout(this);
@@ -2022,6 +2370,7 @@ public class MainActivity extends Activity {
     }
 
     private void closeFolder() {
+        forecastOpen = false;
         if (folderLayer == null || folderLayer.getVisibility() != View.VISIBLE) {
             return;
         }
@@ -2709,7 +3058,7 @@ public class MainActivity extends Activity {
         col.addView(header("Weather"));
         EditText town = field("Town, state", Weather.place(prefs).name, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
         col.addView(town);
-        TextView wxMsg = note("From the National Weather Service, with Open-Meteo as the backup.");
+        TextView wxMsg = note("From Open-Meteo. Tap the weather on the home screen for the hourly and 7-day forecast.");
         col.addView(wxMsg);
         boolean cel = Weather.celsius(prefs);
         col.addView(row(
@@ -2748,12 +3097,6 @@ public class MainActivity extends Activity {
                     refreshWeather(true);
                     reopen.run();
                 })));
-        Store.App wxApp = store.app(prefs.getString("wx_app", ""));
-        col.addView(row(button("Weather app: " + (wxApp == null ? "pick one" : wxApp.label), false,
-                v -> pickApp("Open which app when you tap the weather?", a -> {
-                    prefs.edit().putString("wx_app", a.key).apply();
-                    reopen.run();
-                }))));
 
         col.addView(header("InkFlow"));
         if (signedIn()) {

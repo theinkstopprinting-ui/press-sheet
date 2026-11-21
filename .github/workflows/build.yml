@@ -121,6 +121,17 @@ jobs:
             adb shell input swipe 900 1200 150 1200 250
             sleep 2
             adb exec-out screencap -p > shots/6-after-swipe.png
+            adb shell am start -n com.theinkstop.presssheet/.MainActivity --es open forecast
+            sleep 8
+            adb exec-out screencap -p > shots/9-forecast.png
+            adb shell input keyevent KEYCODE_BACK
+            sleep 2
+            # swipe up from the middle of the home screen should open the app list
+            adb shell input swipe 540 1500 540 500 200
+            sleep 2
+            adb exec-out screencap -p > shots/10-swipe-up.png
+            adb shell input keyevent KEYCODE_HOME
+            sleep 2
             adb shell am start -n com.theinkstop.presssheet/.MainActivity --es open edit
             sleep 4
             adb exec-out screencap -p > shots/8-customize.png

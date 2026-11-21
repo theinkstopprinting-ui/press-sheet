@@ -9,34 +9,44 @@ import java.net.URLEncoder;
 import java.util.Locale;
 
 /**
- * Weather from the US National Weather Service (api.weather.gov: free, no key, official alerts),
- * with Open-Meteo as the backup when the NWS doesn't answer. Town search uses Open-Meteo's
- * place search. All methods here block, so call them from a background thread.
+ * Weather from Open-Meteo (free, no key, blends several national forecast models): the current
+ * reading plus the next 24 hours and 7 days for the forecast pop-up. Town search also uses
+ * Open-Meteo. All methods here block, so call them from a background thread.
  */
 final class Weather {
 
     static final String DEFAULT_NAME = "Crystal Lake, IL";
     static final double DEFAULT_LAT = 42.2411;
     static final double DEFAULT_LON = -88.3162;
+    static final String SOURCE = "Open-Meteo";
 
     /** One reading, ready to show. Temperatures are already in the chosen unit. */
     static final class Now {
         double temp = Double.NaN;
         double hi = Double.NaN;
         double lo = Double.NaN;
+        double feels = Double.NaN;
+        double humidity = Double.NaN;
+        double wind = Double.NaN;
+        String windUnit = "mph";
+        int rain = -1;          // today's chance of rain, percent
         String words = "";
-        String when = "";      // "Today" / "Tonight" for the hi/lo line
+        String when = "";       // "Today" for the hi/lo line
         boolean day = true;
-        String alert = "";      // e.g. "Winter Storm Warning"
+        String alert = "";
         String source = "";
         String place = "";
         long at;
+        JSONArray hours = new JSONArray();   // {t, temp, words, day, pop}
+        JSONArray days = new JSONArray();    // {d, hi, lo, words, pop, rise, set}
 
         JSONObject toJson() {
             JSONObject o = new JSONObject();
             try {
-                o.put("temp", temp).put("hi", hi).put("lo", lo).put("words", words).put("when", when)
-                        .put("day", day).put("alert", alert).put("source", source).put("place", place).put("at", at);
+                o.put("temp", num(temp)).put("hi", num(hi)).put("lo", num(lo)).put("feels", num(feels)).put("humidity", num(humidity))
+                        .put("wind", num(wind)).put("windUnit", windUnit).put("rain", rain).put("words", words)
+                        .put("when", when).put("day", day).put("alert", alert).put("source", source)
+                        .put("place", place).put("at", at).put("hours", hours).put("days", days);
             } catch (Exception ignored) {
                 // returns what it has
             }
@@ -48,6 +58,11 @@ final class Weather {
             n.temp = o.optDouble("temp", Double.NaN);
             n.hi = o.optDouble("hi", Double.NaN);
             n.lo = o.optDouble("lo", Double.NaN);
+            n.feels = o.optDouble("feels", Double.NaN);
+            n.humidity = o.optDouble("humidity", Double.NaN);
+            n.wind = o.optDouble("wind", Double.NaN);
+            n.windUnit = o.optString("windUnit", "mph");
+            n.rain = o.optInt("rain", -1);
             n.words = o.optString("words");
             n.when = o.optString("when");
             n.day = o.optBoolean("day", true);
@@ -55,6 +70,10 @@ final class Weather {
             n.source = o.optString("source");
             n.place = o.optString("place");
             n.at = o.optLong("at");
+            JSONArray h = o.optJSONArray("hours");
+            JSONArray d = o.optJSONArray("days");
+            n.hours = h == null ? new JSONArray() : h;
+            n.days = d == null ? new JSONArray() : d;
             return n;
         }
     }
@@ -74,6 +93,11 @@ final class Weather {
     private Weather() {
     }
 
+    /** JSON can't hold "not a number", so missing values are saved as null. */
+    static Object num(double v) {
+        return Double.isNaN(v) || Double.isInfinite(v) ? JSONObject.NULL : (Object) v;
+    }
+
     static Place place(SharedPreferences p) {
         return new Place(p.getString("wx_name", DEFAULT_NAME),
                 Double.longBitsToDouble(p.getLong("wx_lat", Double.doubleToLongBits(DEFAULT_LAT))),
@@ -84,7 +108,6 @@ final class Weather {
         p.edit().putString("wx_name", pl.name)
                 .putLong("wx_lat", Double.doubleToLongBits(pl.lat))
                 .putLong("wx_lon", Double.doubleToLongBits(pl.lon))
-                .remove("nws_forecast").remove("nws_hourly").remove("nws_for")
                 .remove("wx_cache").apply();
     }
 
@@ -92,22 +115,14 @@ final class Weather {
         return "C".equals(p.getString("wx_unit", "F"));
     }
 
-    /** Fetches the weather: NWS first, Open-Meteo if that fails. Returns null if both fail. */
+    /** Fetches the weather. Returns null if Open-Meteo can't be reached. */
     static Now fetch(SharedPreferences prefs) {
         Place pl = place(prefs);
-        boolean c = celsius(prefs);
-        Now n = null;
+        Now n;
         try {
-            n = fromNws(prefs, pl, c);
+            n = fromOpenMeteo(pl, celsius(prefs));
         } catch (Exception ignored) {
             n = null;
-        }
-        if (n == null) {
-            try {
-                n = fromOpenMeteo(pl, c);
-            } catch (Exception ignored) {
-                n = null;
-            }
         }
         if (n != null) {
             n.place = pl.name;
@@ -117,188 +132,153 @@ final class Weather {
         return n;
     }
 
+    /** The last reading, or null (also null for readings saved by the old National Weather Service version). */
     static Now cached(SharedPreferences prefs) {
         String s = prefs.getString("wx_cache", null);
         if (s == null) {
             return null;
         }
         try {
-            return Now.fromJson(new JSONObject(s));
+            Now n = Now.fromJson(new JSONObject(s));
+            return SOURCE.equals(n.source) ? n : null;
         } catch (Exception e) {
             return null;
-        }
-    }
-
-    private static String coords(Place pl) {
-        return String.format(Locale.US, "%.4f,%.4f", pl.lat, pl.lon);
-    }
-
-    private static double toUnit(double f, String unit, boolean wantC) {
-        if (Double.isNaN(f)) {
-            return f;
-        }
-        boolean isC = "C".equalsIgnoreCase(unit);
-        if (wantC && !isC) {
-            return (f - 32) * 5 / 9;
-        }
-        if (!wantC && isC) {
-            return f * 9 / 5 + 32;
-        }
-        return f;
-    }
-
-    private static Now fromNws(SharedPreferences prefs, Place pl, boolean wantC) throws Exception {
-        String key = coords(pl);
-        String forecast = prefs.getString("nws_forecast", null);
-        String hourly = prefs.getString("nws_hourly", null);
-        if (forecast == null || hourly == null || !key.equals(prefs.getString("nws_for", ""))) {
-            Net.Reply r = Net.get("https://api.weather.gov/points/" + key, null, "application/geo+json");
-            if (!r.ok()) {
-                return null;
-            }
-            JSONObject props = r.json().optJSONObject("properties");
-            if (props == null) {
-                return null;
-            }
-            forecast = props.optString("forecast", null);
-            hourly = props.optString("forecastHourly", null);
-            if (forecast == null || hourly == null) {
-                return null;
-            }
-            prefs.edit().putString("nws_forecast", forecast).putString("nws_hourly", hourly).putString("nws_for", key).apply();
-        }
-
-        Now n = new Now();
-        n.source = "National Weather Service";
-
-        Net.Reply h = Net.get(hourly, null, "application/geo+json");
-        if (!h.ok()) {
-            prefs.edit().remove("nws_for").apply(); // grid can move: look it up again next time
-            return null;
-        }
-        JSONObject hp = h.json().optJSONObject("properties");
-        JSONArray hperiods = hp == null ? null : hp.optJSONArray("periods");
-        if (hperiods == null || hperiods.length() == 0) {
-            return null;
-        }
-        JSONObject now = hperiods.getJSONObject(0);
-        n.temp = toUnit(now.optDouble("temperature", Double.NaN), now.optString("temperatureUnit", "F"), wantC);
-        n.words = now.optString("shortForecast");
-        n.day = now.optBoolean("isDaytime", true);
-
-        try {
-            Net.Reply d = Net.get(forecast, null, "application/geo+json");
-            JSONObject dp = d.ok() ? d.json().optJSONObject("properties") : null;
-            JSONArray periods = dp == null ? null : dp.optJSONArray("periods");
-            if (periods != null && periods.length() > 0) {
-                JSONObject p0 = periods.getJSONObject(0);
-                String u = p0.optString("temperatureUnit", "F");
-                if (p0.optBoolean("isDaytime", true)) {
-                    n.hi = toUnit(p0.optDouble("temperature", Double.NaN), u, wantC);
-                    if (periods.length() > 1) {
-                        n.lo = toUnit(periods.getJSONObject(1).optDouble("temperature", Double.NaN), u, wantC);
-                    }
-                    n.when = "Today";
-                } else {
-                    n.lo = toUnit(p0.optDouble("temperature", Double.NaN), u, wantC);
-                    n.when = "Tonight";
-                }
-            }
-        } catch (Exception ignored) {
-            // hi/lo is a nice-to-have
-        }
-
-        try {
-            Net.Reply a = Net.get("https://api.weather.gov/alerts/active?point=" + key, null, "application/geo+json");
-            JSONArray feats = a.ok() ? a.json().optJSONArray("features") : null;
-            int best = -1;
-            if (feats != null) {
-                for (int i = 0; i < feats.length(); i++) {
-                    JSONObject pr = feats.getJSONObject(i).optJSONObject("properties");
-                    if (pr == null) {
-                        continue;
-                    }
-                    int rank = severity(pr.optString("severity"));
-                    if (rank > best) {
-                        best = rank;
-                        n.alert = pr.optString("event");
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-            // alerts are a nice-to-have
-        }
-        return n;
-    }
-
-    private static int severity(String s) {
-        switch (s == null ? "" : s) {
-            case "Extreme":
-                return 4;
-            case "Severe":
-                return 3;
-            case "Moderate":
-                return 2;
-            case "Minor":
-                return 1;
-            default:
-                return 0;
         }
     }
 
     private static Now fromOpenMeteo(Place pl, boolean wantC) throws Exception {
         String url = String.format(Locale.US,
                 "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
-                        + "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min"
-                        + "&temperature_unit=%s&timezone=auto&forecast_days=1",
-                pl.lat, pl.lon, wantC ? "celsius" : "fahrenheit");
+                        + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m"
+                        + "&hourly=temperature_2m,weather_code,precipitation_probability,is_day"
+                        + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset"
+                        + "&temperature_unit=%s&wind_speed_unit=%s&timezone=auto&forecast_days=7&forecast_hours=25",
+                pl.lat, pl.lon, wantC ? "celsius" : "fahrenheit", wantC ? "kmh" : "mph");
         Net.Reply r = Net.get(url, null, null);
         if (!r.ok()) {
             return null;
         }
         JSONObject b = r.json();
         JSONObject cur = b.optJSONObject("current");
-        JSONObject daily = b.optJSONObject("daily");
         if (cur == null) {
             return null;
         }
         Now n = new Now();
-        n.source = "Open-Meteo";
+        n.source = SOURCE;
+        n.windUnit = wantC ? "km/h" : "mph";
         n.temp = cur.optDouble("temperature_2m", Double.NaN);
+        n.feels = cur.optDouble("apparent_temperature", Double.NaN);
+        n.humidity = cur.optDouble("relative_humidity_2m", Double.NaN);
+        n.wind = cur.optDouble("wind_speed_10m", Double.NaN);
         n.day = cur.optInt("is_day", 1) != 0;
-        n.words = words(cur.optInt("weather_code", 3));
+        n.words = words(cur.optInt("weather_code", 3), n.day);
+        String nowTime = cur.optString("time", "");
+
+        JSONObject hourly = b.optJSONObject("hourly");
+        if (hourly != null) {
+            JSONArray t = hourly.optJSONArray("time");
+            JSONArray tp = hourly.optJSONArray("temperature_2m");
+            JSONArray wc = hourly.optJSONArray("weather_code");
+            JSONArray pp = hourly.optJSONArray("precipitation_probability");
+            JSONArray dy = hourly.optJSONArray("is_day");
+            for (int i = 0; t != null && i < t.length() && n.hours.length() < 24; i++) {
+                String time = t.optString(i);
+                if (!nowTime.isEmpty() && time.compareTo(nowTime.substring(0, Math.min(13, nowTime.length()))) < 0) {
+                    continue;   // already past
+                }
+                boolean d = dy == null || dy.optInt(i, 1) != 0;
+                n.hours.put(new JSONObject().put("t", time).put("temp", num(tp == null ? Double.NaN : tp.optDouble(i)))
+                        .put("words", words(wc == null ? 3 : wc.optInt(i, 3), d)).put("day", d)
+                        .put("pop", pp == null ? -1 : pp.optInt(i, -1)));
+            }
+        }
+
+        JSONObject daily = b.optJSONObject("daily");
         if (daily != null) {
+            JSONArray t = daily.optJSONArray("time");
             JSONArray mx = daily.optJSONArray("temperature_2m_max");
             JSONArray mn = daily.optJSONArray("temperature_2m_min");
-            if (mx != null && mx.length() > 0) {
-                n.hi = mx.optDouble(0, Double.NaN);
+            JSONArray wc = daily.optJSONArray("weather_code");
+            JSONArray pp = daily.optJSONArray("precipitation_probability_max");
+            JSONArray rise = daily.optJSONArray("sunrise");
+            JSONArray set = daily.optJSONArray("sunset");
+            for (int i = 0; t != null && i < t.length(); i++) {
+                n.days.put(new JSONObject().put("d", t.optString(i))
+                        .put("hi", num(mx == null ? Double.NaN : mx.optDouble(i))).put("lo", num(mn == null ? Double.NaN : mn.optDouble(i)))
+                        .put("words", words(wc == null ? 3 : wc.optInt(i, 3), true))
+                        .put("pop", pp == null ? -1 : pp.optInt(i, -1))
+                        .put("rise", rise == null ? "" : rise.optString(i)).put("set", set == null ? "" : set.optString(i)));
             }
-            if (mn != null && mn.length() > 0) {
-                n.lo = mn.optDouble(0, Double.NaN);
+            if (n.days.length() > 0) {
+                JSONObject d0 = n.days.getJSONObject(0);
+                n.hi = d0.optDouble("hi", Double.NaN);
+                n.lo = d0.optDouble("lo", Double.NaN);
+                n.rain = d0.optInt("pop", -1);
+                n.when = "Today";
             }
-            n.when = "Today";
         }
         return n;
     }
 
-    private static String words(int code) {
-        if (code == 0) return "Clear";
-        if (code == 1) return "Mostly Clear";
-        if (code == 2) return "Partly Cloudy";
-        if (code == 3) return "Cloudy";
-        if (code == 45 || code == 48) return "Fog";
-        if (code >= 51 && code <= 57) return "Drizzle";
-        if (code == 66 || code == 67) return "Freezing Rain";
-        if ((code >= 61 && code <= 65) || (code >= 80 && code <= 82)) return "Rain";
-        if ((code >= 71 && code <= 77) || code == 85 || code == 86) return "Snow";
-        if (code >= 95) return "Thunderstorms";
-        return "Cloudy";
+    /** Plain words for an Open-Meteo (WMO) weather code. */
+    static String words(int code, boolean day) {
+        switch (code) {
+            case 0:
+                return day ? "Sunny" : "Clear";
+            case 1:
+                return day ? "Mostly sunny" : "Mostly clear";
+            case 2:
+                return "Partly cloudy";
+            case 3:
+                return "Cloudy";
+            case 45:
+            case 48:
+                return "Fog";
+            case 51:
+            case 53:
+            case 55:
+                return "Drizzle";
+            case 56:
+            case 57:
+                return "Freezing drizzle";
+            case 61:
+                return "Light rain";
+            case 63:
+                return "Rain";
+            case 65:
+                return "Heavy rain";
+            case 66:
+            case 67:
+                return "Freezing rain";
+            case 71:
+                return "Light snow";
+            case 73:
+                return "Snow";
+            case 75:
+                return "Heavy snow";
+            case 77:
+                return "Snow grains";
+            case 80:
+            case 81:
+            case 82:
+                return "Showers";
+            case 85:
+            case 86:
+                return "Snow showers";
+            case 95:
+                return "Thunderstorms";
+            case 96:
+            case 99:
+                return "Storms with hail";
+            default:
+                return "Cloudy";
+        }
     }
 
     /** Which of the bundled weather icons fits these words. */
     static int icon(String words, boolean day) {
         String w = words == null ? "" : words.toLowerCase(Locale.US);
-        if (w.contains("thunder") || w.contains("t-storm")) return R.drawable.wx_storm;
+        if (w.contains("thunder") || w.contains("storm")) return R.drawable.wx_storm;
         if (w.contains("snow") || w.contains("flurr") || w.contains("sleet") || w.contains("ice") || w.contains("freezing")) return R.drawable.wx_snow;
         if (w.contains("rain") || w.contains("shower") || w.contains("drizzle")) return R.drawable.wx_rain;
         if (w.contains("fog") || w.contains("haze") || w.contains("smoke") || w.contains("mist")) return R.drawable.wx_fog;
