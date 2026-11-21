@@ -93,6 +93,7 @@ public class MainActivity extends Activity {
     private LinearLayout drawer, recentBox, actionsBox;
     private EditText search;
     private GridView grid;
+    private LetterStrip letters;
     private FrameLayout folderLayer;
     private final List<ScrollView> pageScrolls = new ArrayList<>();
     private int cellW;
@@ -2180,7 +2181,7 @@ public class MainActivity extends Activity {
         grid.setVerticalSpacing(dp(14));
         grid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
         grid.setSelector(new ColorDrawable(Color.TRANSPARENT));
-        grid.setPadding(0, dp(12), dp(6), dp(24));
+        grid.setPadding(0, dp(12), dp(4), dp(24));
         grid.setClipToPadding(false);
         grid.setVerticalScrollBarEnabled(false);
         grid.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -2196,7 +2197,11 @@ public class MainActivity extends Activity {
             public void onScroll(AbsListView view, int first, int visible, int total) {
             }
         });
-        d.addView(grid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        LinearLayout gridRow = new LinearLayout(this);
+        gridRow.addView(grid, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        letters = new LetterStrip(this);
+        gridRow.addView(letters, new LinearLayout.LayoutParams(dp(20), ViewGroup.LayoutParams.MATCH_PARENT));
+        d.addView(gridRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return d;
     }
 
@@ -2324,8 +2329,7 @@ public class MainActivity extends Activity {
                 closeDrawer();
                 openUrl("https://www.google.com/search?q=" + Uri.encode(q));
             }));
-            grid.setFastScrollAlwaysVisible(false);
-            grid.setFastScrollEnabled(false);
+            letters.setVisibility(View.GONE);
             grid.setAdapter(new AppAdapter(searchApps(q), false));
             return;
         }
@@ -2366,8 +2370,8 @@ public class MainActivity extends Activity {
             recentBox.addView(all);
         }
         grid.setAdapter(new AppAdapter(new ArrayList<>(store.apps), true));
-        grid.setFastScrollEnabled(true);
-        grid.setFastScrollAlwaysVisible(true);
+        letters.setVisibility(View.VISIBLE);
+        letters.setAdapter((AppAdapter) grid.getAdapter());
     }
 
     private void drawerAppMenu(Store.App a) {
@@ -2482,6 +2486,83 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * A thin A-to-Z strip on the right of the app list. Only touches on the strip itself jump to a letter,
+     * so tapping apps near the right edge opens the app instead of jumping through the list.
+     */
+    private final class LetterStrip extends View {
+        private final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private AppAdapter adapter;
+        private int active = -1;
+
+        LetterStrip(Context c) {
+            super(c);
+            pt.setTextAlign(android.graphics.Paint.Align.CENTER);
+            pt.setTextSize(dp(10.5f));
+            pt.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+
+        void setAdapter(AppAdapter a) {
+            adapter = a;
+            active = -1;
+            invalidate();
+        }
+
+        private Object[] letters() {
+            return adapter == null ? new Object[0] : adapter.getSections();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas c) {
+            Object[] ls = letters();
+            if (ls.length == 0) {
+                return;
+            }
+            float top = dp(14), h = getHeight() - dp(28);
+            float step = h / ls.length;
+            for (int i = 0; i < ls.length; i++) {
+                float y = top + step * i + step / 2 + pt.getTextSize() / 3;
+                if (i == active) {
+                    pt.setColor(PRESS[1]);
+                    c.drawCircle(getWidth() / 2f, y - pt.getTextSize() / 3, dp(9), pt);
+                    pt.setColor(Color.WHITE);
+                } else {
+                    pt.setColor(sub);
+                }
+                c.drawText(String.valueOf(ls[i]), getWidth() / 2f, y, pt);
+            }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            Object[] ls = letters();
+            if (ls.length == 0) {
+                return false;
+            }
+            int a = e.getActionMasked();
+            if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_MOVE) {
+                getParent().requestDisallowInterceptTouchEvent(true);
+                float top = dp(14), h = getHeight() - dp(28);
+                int i = (int) ((e.getY() - top) / (h / ls.length));
+                i = Math.max(0, Math.min(ls.length - 1, i));
+                if (i != active) {
+                    active = i;
+                    grid.setSelection(adapter.getPositionForSection(i));
+                    performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+                    hideKeyboard();
+                    invalidate();
+                }
+                return true;
+            }
+            if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                active = -1;
+                invalidate();
+                return true;
+            }
+            return true;
+        }
+    }
+
     // ================================================================== settings
 
     private Button button(String label, boolean on, View.OnClickListener click) {
@@ -2567,6 +2648,49 @@ public class MainActivity extends Activity {
         }
         col.addView(row(gb.get(0), gb.get(1), gb.get(2), gb.get(3)));
         col.addView(note("How many icons fit in each row of a section. 8 is what your Samsung used."));
+
+        col.addView(header("Background"));
+        col.addView(note("Press-style backgrounds made for Press Sheet. Tap one to use it."));
+        android.widget.HorizontalScrollView wallScroll = new android.widget.HorizontalScrollView(this);
+        wallScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout wallRow = new LinearLayout(this);
+        wallRow.setPadding(0, dp(10), 0, dp(4));
+        wallScroll.addView(wallRow);
+        for (String[] w : WALLS) {
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            ImageView th = new ImageView(this);
+            th.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            th.setBackground(round(chip, 12));
+            th.setClipToOutline(true);
+            cell.addView(th, lp(dp(72), dp(150)));
+            TextView nm = tv(w[1], 11, false, sub);
+            nm.setPadding(0, dp(5), 0, 0);
+            cell.addView(nm);
+            LinearLayout.LayoutParams cl = lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            cl.rightMargin = dp(10);
+            wallRow.addView(cell, cl);
+            cell.setOnClickListener(v -> chooseWall(w));
+            bg.execute(() -> {
+                try (java.io.InputStream in = getAssets().open("walls/" + w[0])) {
+                    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                    o.inSampleSize = 8;
+                    Bitmap b = android.graphics.BitmapFactory.decodeStream(in, null, o);
+                    ui.post(() -> th.setImageBitmap(b));
+                } catch (Exception ignored) {
+                    // no thumbnail
+                }
+            });
+        }
+        col.addView(wallScroll);
+        col.addView(row(button("Use my own photo", false, v -> {
+            try {
+                startActivity(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER), "Pick a background"));
+            } catch (Exception e) {
+                Toast.makeText(this, "Couldn\u2019t open the wallpaper picker", Toast.LENGTH_SHORT).show();
+            }
+        })));
 
         col.addView(header("Colors for the drawer and folders"));
         String th = prefs.getString("theme", "phone");
@@ -2740,6 +2864,32 @@ public class MainActivity extends Activity {
 
         holder[0] = dialog().setTitle("Settings").setView(sv).setPositiveButton("Done", null).create();
         holder[0].show();
+    }
+
+    private static final String[][] WALLS = {
+            {"01-halftone-glow.jpg", "Halftone"}, {"02-off-register.jpg", "Off register"},
+            {"03-press-sheet.jpg", "Press sheet"}, {"04-ink-splash.jpg", "Ink splash"},
+            {"05-squeegee.jpg", "Squeegee"}, {"06-riso-dusk.jpg", "Riso dusk"}};
+
+    private void chooseWall(String[] w) {
+        String[] where = {"Home screen", "Home screen and lock screen"};
+        dialog().setTitle("Use \u201c" + w[1] + "\u201d on").setItems(where, (d, which) -> {
+            Toast.makeText(this, "Setting the background\u2026", Toast.LENGTH_SHORT).show();
+            bg.execute(() -> {
+                String msg;
+                try (java.io.InputStream in = getAssets().open("walls/" + w[0])) {
+                    android.app.WallpaperManager wm = android.app.WallpaperManager.getInstance(this);
+                    int flags = which == 0 ? android.app.WallpaperManager.FLAG_SYSTEM
+                            : android.app.WallpaperManager.FLAG_SYSTEM | android.app.WallpaperManager.FLAG_LOCK;
+                    wm.setStream(in, null, true, flags);
+                    msg = "Background set";
+                } catch (Exception e) {
+                    msg = "Couldn\u2019t set the background";
+                }
+                final String m2 = msg;
+                ui.post(() -> Toast.makeText(this, m2, Toast.LENGTH_SHORT).show());
+            });
+        }).setNegativeButton("Cancel", null).show();
     }
 
     private boolean isDefaultHome() {

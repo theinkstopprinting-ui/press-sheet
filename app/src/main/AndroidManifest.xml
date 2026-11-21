@@ -4,6 +4,7 @@
     <!-- Only used to ask your own InkFlow for the Shop tiles' live numbers (see MainActivity). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
 
 
     <!-- A home screen has to be able to see the apps it opens. -->
